@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PhysiX Lab | مختبر الميكانيكا التفاعلي</title>
-  <link rel="icon" type="image/jpeg" href="/logo.jpg">
+  <title>PhysiX </title>
+  <!-- <link rel="icon" type="image/jpeg" href="/logo.jpg"> -->
   <link rel="apple-touch-icon" href="/logo.jpg">
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#0f172a">
@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="css/style.css">
   <script>
     window.MathJax = {
       tex: {
@@ -31,10 +31,10 @@
   <header class="app-header">
     <div class="header-left">
       <div class="brand">
-        <div class="brand-icon"><img src="/logo.jpg" alt="PhysiX Lab Logo" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div>
+        <div class="brand-icon"><img src="images/physiX.jpeg" alt="PhysiX Logo" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div>
         <div class="brand-text">
-          <span class="brand-title" data-i18n="brand_name">PhysiX Lab</span>
-          <span class="brand-subtitle" data-i18n="brand_sub">مختبر الميكانيكا الهندسي</span>
+          <span class="brand-title" data-i18n="brand_name">PhysiX </span>
+          <span class="brand-subtitle" data-i18n="brand_sub">PhysiX</span>
         </div>
       </div>
 
@@ -83,7 +83,7 @@
         <span id="langLabel">العربية</span>
       </button>
 
-      <!-- User Profile & Login Button -->
+      <!-- User Profile & Login Button --> 
       <div class="user-pill" id="userPill">
         <button class="btn btn-secondary btn-sm" id="loginBtn" data-i18n="btn_login" style="display:none;">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
@@ -356,8 +356,8 @@
         <div class="exam-entry-box" id="examEntryBox">
           <div class="exam-card">
             <div class="exam-badge">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-            </div>
+              <svg width="2
+             </div>
             <h2 data-i18n="exam_entry_title">Enter Lab Sheet Code</h2>
             <p data-i18n="exam_entry_sub">Instructors provide a designated sheet code. Each student receives deterministic anti-cheat randomized numerical parameters.</p>
 
@@ -628,7 +628,7 @@
   <!-- 1. Mandatory Academic Authentication Gate Modal -->
   <div class="modal-backdrop auth-gate-backdrop" id="authModal" style="display:none;">
     <div class="modal-card auth-modal-card">
-      <div class="auth-gate-header">
+      <!-- <div class="auth-gate-header">
         <div class="brand auth-brand">
           <div class="brand-icon">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -640,8 +640,8 @@
           <div>
             <h3 class="auth-title" data-i18n="auth_gate_title">Academic Authentication Gate</h3>
             <p class="auth-subtitle" data-i18n="auth_gate_sub">Sign in to sync your level stars and practical lab assessments.</p>
-          </div>
-        </div>
+          </div> 
+        </div> -->
       </div>
 
       <!-- Tab Switcher (State 1: Login, State 2: Register) -->
@@ -666,15 +666,15 @@
         <form id="loginForm" onsubmit="return false;" class="auth-form">
           <div class="form-group">
             <label for="loginEmail" data-i18n="label_email">Institutional Email:</label>
-            <input type="email" class="form-input" id="loginEmail" placeholder="name@university.edu" required autocomplete="username">
+            <input type="email" class="form-input" id="loginEmail" placeholder="id@university.edu.eg" required autocomplete="username">
           </div>
           <div class="form-group">
             <label for="loginPassword" data-i18n="label_password">Password:</label>
-            <input type="password" class="form-input" id="loginPassword" placeholder="••••••••" required autocomplete="current-password">
+            <input type="password" class="form-input" id="loginPassword" placeholder="Enter your password" required autocomplete="current-password">
           </div>
           <div class="auth-actions">
             <button class="btn btn-primary btn-block btn-lg" id="submitLoginBtn" type="submit">
-              <span class="btn-text" data-i18n="btn_signin_submit">Sign In & Launch Platform</span>
+              <span class="btn-text" data-i18n="btn_signin_submit">Sign in</span>
               <div class="spinner-sm" style="display:none;"></div>
             </button>
           </div>
@@ -691,39 +691,39 @@
       <div class="auth-state-pane" id="authStateRegister" style="display:none;">
         <form id="registerForm" onsubmit="return false;" class="auth-form">
           <div class="form-group">
-            <label data-i18n="label_role">Your Academic Role:</label>
+            <label data-i18n="label_role">Your academic role:</label>
             <div class="role-selector">
               <label class="radio-label">
                 <input type="radio" name="registerRole" value="student" checked>
-                <span data-i18n="role_student">Student / طالب</span>
+                <span data-i18n="role_student">Student </span>
               </label>
               <label class="radio-label">
                 <input type="radio" name="registerRole" value="instructor">
-                <span data-i18n="role_instructor">Instructor / معيد</span>
+                <span data-i18n="role_instructor">Instructor </span>
               </label>
             </div>
           </div>
           <div class="form-group">
             <label for="registerFullName" data-i18n="label_full_name">Full Name:</label>
-            <input type="text" class="form-input" id="registerFullName" placeholder="e.g. Omar Khalil / عمر خليل" required>
+            <input type="text" class="form-input" id="registerFullName" placeholder="Enter your nmae" required>
           </div>
           <div class="form-group">
             <label for="registerEmail" data-i18n="label_email">Institutional Email:</label>
-            <input type="email" class="form-input" id="registerEmail" placeholder="name@university.edu" required autocomplete="email">
+            <input type="email" class="form-input" id="registerEmail" placeholder="id@university.edu" required autocomplete="email">
           </div>
           <div class="form-group">
             <label for="registerPassword" data-i18n="label_password">Password (min 6 characters):</label>
-            <input type="password" class="form-input" id="registerPassword" placeholder="••••••••" required minlength="6" autocomplete="new-password">
+            <input type="password" class="form-input" id="registerPassword" placeholder="Enter your password" required minlength="6" autocomplete="new-password">
           </div>
           <div class="auth-actions">
             <button class="btn btn-primary btn-block btn-lg" id="submitRegisterBtn" type="submit">
-              <span class="btn-text" data-i18n="btn_register_submit">Create Account & Send OTP</span>
+              <span class="btn-text" data-i18n="btn_register_submit">Create Account </span>
               <div class="spinner-sm" style="display:none;"></div>
             </button>
           </div>
           <div class="auth-switch-link">
             <span data-i18n="auth_have_account">Already have an account?</span>
-            <button type="button" class="btn-link" id="switchToLoginLink" data-i18n="tab_signin">Sign In</button>
+            <button type="button" class="btn-link" id="switchToLoginL
           </div>
         </form>
       </div>
@@ -731,6 +731,7 @@
       <!-- ============================================== -->
       <!-- STATE 3: ENTER 6-DIGIT EMAIL OTP -->
       <!-- ============================================== -->
+
       <div class="auth-state-pane" id="authStateOtp" style="display:none;">
         <div class="otp-verification-card">
           <div class="otp-header-icon">
@@ -842,3 +843,7 @@
   <script src="app.js"></script>
 </body>
 </html>
+
+
+
+              
