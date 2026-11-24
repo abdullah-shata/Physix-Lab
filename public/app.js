@@ -102,11 +102,19 @@ const I18N = {
     label_full_name: "Full Name:",
     label_email: "Institutional Email:",
     label_password: "Password:",
-    btn_login_submit: "Sign In & Launch Platform",
-    btn_signin_submit: "Sign In & Launch Platform",
+    btn_login_submit: "Sign In",
+    btn_signin_submit: "Sign In",
     btn_register_submit: "Create Account & Send OTP",
     auth_no_account: "Don't have an account?",
     auth_have_account: "Already have an account?",
+    forgot_password_link: "Forgot Password?",
+    forgot_password_title: "Reset Password",
+    forgot_password_sub: "Enter your registered email to receive a 6-digit reset code.",
+    btn_send_reset_code: "Send Reset Code",
+    reset_password_title: "Set New Password",
+    reset_password_sub: "Enter the 6-digit code sent to your email and your new password.",
+    btn_reset_password_submit: "Reset Password & Sign In",
+    label_new_password: "New Password (min 6 characters):",
     otp_title: "Enter 6-Digit Email OTP",
     otp_desc: "A 6-digit verification code was dispatched to:",
     otp_expires_in: "Code expires in:",
@@ -211,11 +219,19 @@ const I18N = {
     label_full_name: "الاسم بالكامل:",
     label_email: "البريد الجامعي:",
     label_password: "كلمة المرور:",
-    btn_login_submit: "دخول المنصة وحفظ التقدم",
-    btn_signin_submit: "دخول المنصة وحفظ التقدم",
+    btn_login_submit: "تسجيل الدخول",
+    btn_signin_submit: "تسجيل الدخول",
     btn_register_submit: "إنشاء الحساب وإرسال رمز التحقق",
     auth_no_account: "ليس لديك حساب؟",
     auth_have_account: "لديك حساب بالفعل؟",
+    forgot_password_link: "نسيت كلمة المرور؟",
+    forgot_password_title: "إعادة تعيين كلمة المرور",
+    forgot_password_sub: "أدخل بريدك الإلكتروني لتلقي رمز تعيين كلمة المرور المكون من 6 أرقام.",
+    btn_send_reset_code: "إرسال رمز التعيين",
+    reset_password_title: "تعيين كلمة المرور الجديدة",
+    reset_password_sub: "أدخل الرمز المكون من 6 أرقام وكلمة المرور الجديدة.",
+    btn_reset_password_submit: "تحديث كلمة المرور والدخول",
+    label_new_password: "كلمة المرور الجديدة (6 أحرف على الأقل):",
     otp_title: "إدخال رمز التحقق (OTP)",
     otp_desc: "تم إرسال رمز تحقق مكوّن من 6 أرقام إلى:",
     otp_expires_in: "ينتهي الرمز خلال:",
@@ -1483,7 +1499,17 @@ class PhysicsSimulationEngine {
 let simEngine = null;
 
 document.addEventListener("DOMContentLoaded", () => {
-  try { setupAuthGate(); } catch (_) { const m=document.getElementById("authModal"); if(m && !AppState.user){ m.style.display="flex"; m.style.zIndex="99999"; } }
+  try {
+    setupAuthGate();
+  } catch (e) {
+    const v = document.getElementById("authPageView");
+    const w = document.getElementById("mainWorkspace");
+    if (v && !AppState.user) {
+      v.style.display = "flex";
+      if (w) w.style.display = "none";
+    }
+  }
+
   // Initialize Engine
   simEngine = new PhysicsSimulationEngine("simCanvas", "telemetryCanvas");
   simEngine.init();
@@ -1520,18 +1546,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Setup Vision OCR Scanner
   setupVisionScanner();
-
-  try {
-    try {
-    setupAuthGate();
-  } catch (e) {
-    const m = document.getElementById("authModal");
-    if (m) { m.style.display = "flex"; m.style.zIndex = "99999"; }
-  }
-  } catch (e) {
-    const m = document.getElementById("authModal");
-    if (m) m.style.display = "flex";
-  }
 });
 
 // ----------------------------------------------------------------------------
@@ -1542,7 +1556,10 @@ function setupNavTabs() {
   tabs.forEach((tab) => {
     tab.addEventListener("click", () => {
       if (!AppState.user) {
-        document.getElementById("authModal").style.display = "flex";
+        const v = document.getElementById("authPageView");
+        const w = document.getElementById("mainWorkspace");
+        if (v) v.style.display = "flex";
+        if (w) w.style.display = "none";
         return;
       }
       const target = tab.dataset.tab;
@@ -1553,14 +1570,28 @@ function setupNavTabs() {
       document.querySelectorAll(".tab-pane").forEach((pane) => {
         pane.classList.remove("active");
       });
-      const targetPane = document.getElementById(`pane-${target}`);
-      if (targetPane) targetPane.classList.add("active");
+      const activePane = document.getElementById(`pane-${target}`);
+      if (activePane) activePane.classList.add("active");
 
+      // Seamless Exam Preservation: if active exam session is ongoing, keep examActiveSheet displayed
+      if (target === "exam") {
+        if (AppState.activeExam && !AppState.activeExam.submitted) {
+          const entryBox = document.getElementById("examEntryBox");
+          const activeSheet = document.getElementById("examActiveSheet");
+          if (entryBox && activeSheet && document.getElementById("examQuestionsList")?.children.length > 0) {
+            entryBox.style.display = "none";
+            activeSheet.style.display = "block";
+          }
+        }
+      }
+
+      // Redraw simulation if returning to lab tab
       if (target === "lab") {
         setTimeout(() => {
-          simEngine.resizeCanvas();
-          simEngine.render();
-          simEngine.renderTelemetry();
+          simEngine?.resizeCanvas?.();
+          simEngine?.render?.();
+          simEngine?.renderTelemetry?.();
+          simEngine?.draw?.();
         }, 50);
       } else if (target === "instructor") {
         refreshInstructorSheets();
@@ -1798,36 +1829,36 @@ function renderSolverInputs(topic) {
 
   const fieldConfigs = {
     kinematics: [
-      { id: "F", label: "Applied Force (F) [N]", label_ar: "القوة المطبقة (F) [N]", placeholder: "e.g. 25" },
-      { id: "m", label: "Mass (m) [kg]", label_ar: "الكتلة (m) [kg]", placeholder: "e.g. 5 (leave blank)" },
-      { id: "a", label: "Acceleration (a) [m/s²]", label_ar: "التسارع (a) [m/s²]", placeholder: "e.g. 5" },
-      { id: "v0", label: "Initial Velocity (v₀) [m/s]", label_ar: "السرعة الابتدائية (v₀) [m/s]", placeholder: "0" },
-      { id: "s", label: "Displacement (s) [m]", label_ar: "الإزاحة (s) [m]", placeholder: "e.g. 40" },
-      { id: "t", label: "Travel Time (t) [s]", label_ar: "زمن الحركة (t) [s]", placeholder: "e.g. 4" }
+      { id: "F", label: "Applied Force (F) [N]", label_ar: "القوة المطبقة (F) [N]", placeholder: "Enter value" },
+      { id: "m", label: "Mass (m) [kg]", label_ar: "الكتلة (m) [kg]", placeholder: "Enter value" },
+      { id: "a", label: "Acceleration (a) [m/s²]", label_ar: "التسارع (a) [m/s²]", placeholder: "Enter value" },
+      { id: "v0", label: "Initial Velocity (v₀) [m/s]", label_ar: "السرعة الابتدائية (v₀) [m/s]", placeholder: "Enter value" },
+      { id: "s", label: "Displacement (s) [m]", label_ar: "الإزاحة (s) [m]", placeholder: "Enter value" },
+      { id: "t", label: "Travel Time (t) [s]", label_ar: "زمن الحركة (t) [s]", placeholder: "Enter value" }
     ],
     projectile: [
-      { id: "v0", label: "Launch Speed (v₀) [m/s]", label_ar: "السرعة الابتدائية (v₀) [m/s]", placeholder: "e.g. 25" },
-      { id: "theta", label: "Launch Angle (θ) [°]", label_ar: "زاوية الإطلاق (θ) [°]", placeholder: "e.g. 45" },
-      { id: "range", label: "Ground Range (R) [m]", label_ar: "المدى الأفقي (R) [m]", placeholder: "leave blank to solve" }
+      { id: "v0", label: "Launch Speed (v₀) [m/s]", label_ar: "السرعة الابتدائية (v₀) [m/s]", placeholder: "Enter value" },
+      { id: "theta", label: "Launch Angle (θ) [°]", label_ar: "زاوية الإطلاق (θ) [°]", placeholder: "Enter value" },
+      { id: "range", label: "Ground Range (R) [m]", label_ar: "المدى الأفقي (R) [m]", placeholder: "Enter value" }
     ],
     inclined_plane: [
-      { id: "m", label: "Mass (m) [kg]", label_ar: "الكتلة (m) [kg]", placeholder: "5.0" },
-      { id: "theta", label: "Incline Angle (θ) [°]", label_ar: "زاوية المنحدر (θ) [°]", placeholder: "30.0" },
-      { id: "mu_s", label: "Static Friction (μ_s)", label_ar: "معامل الاحتكاك السكوني (μ_s)", placeholder: "0.40" },
-      { id: "mu_k", label: "Kinetic Friction (μ_k)", label_ar: "معامل الاحتكاك الحركي (μ_k)", placeholder: "0.25" }
+      { id: "m", label: "Mass (m) [kg]", label_ar: "الكتلة (m) [kg]", placeholder: "Enter value" },
+      { id: "theta", label: "Incline Angle (θ) [°]", label_ar: "زاوية المنحدر (θ) [°]", placeholder: "Enter value" },
+      { id: "mu_s", label: "Static Friction (μ_s)", label_ar: "معامل الاحتكاك السكوني (μ_s)", placeholder: "Enter value" },
+      { id: "mu_k", label: "Kinetic Friction (μ_k)", label_ar: "معامل الاحتكاك الحركي (μ_k)", placeholder: "Enter value" }
     ],
     forces: [
-      { id: "F1", label: "Force 1 (F₁) [N]", label_ar: "القوة الأولى (F₁) [N]", placeholder: "10" },
-      { id: "theta1", label: "Angle 1 (θ₁) [°]", label_ar: "زاوية 1 (θ₁) [°]", placeholder: "0" },
-      { id: "F2", label: "Force 2 (F₂) [N]", label_ar: "القوة الثانية (F₂) [N]", placeholder: "15" },
-      { id: "theta2", label: "Angle 2 (θ₂) [°]", label_ar: "زاوية 2 (θ₂) [°]", placeholder: "90" }
+      { id: "F1", label: "Force 1 (F₁) [N]", label_ar: "القوة الأولى (F₁) [N]", placeholder: "Enter value" },
+      { id: "theta1", label: "Angle 1 (θ₁) [°]", label_ar: "زاوية 1 (θ₁) [°]", placeholder: "Enter value" },
+      { id: "F2", label: "Force 2 (F₂) [N]", label_ar: "القوة الثانية (F₂) [N]", placeholder: "Enter value" },
+      { id: "theta2", label: "Angle 2 (θ₂) [°]", label_ar: "زاوية 2 (θ₂) [°]", placeholder: "Enter value" }
     ],
     momentum: [
-      { id: "m1", label: "Cart 1 Mass (m₁) [kg]", label_ar: "كتلة العربة 1 (m₁) [kg]", placeholder: "2.0" },
-      { id: "v1", label: "Cart 1 Speed (v₁) [m/s]", label_ar: "سرعة العربة 1 (v₁) [m/s]", placeholder: "5.0" },
-      { id: "m2", label: "Cart 2 Mass (m₂) [kg]", label_ar: "كتلة العربة 2 (m₂) [kg]", placeholder: "3.0" },
-      { id: "v2", label: "Cart 2 Speed (v₂) [m/s]", label_ar: "سرعة العربة 2 (v₂) [m/s]", placeholder: "0.0" },
-      { id: "e", label: "Restitution (e) [0-1]", label_ar: "معامل الارتداد (e) [0-1]", placeholder: "1.0" }
+      { id: "m1", label: "Cart 1 Mass (m₁) [kg]", label_ar: "كتلة العربة 1 (m₁) [kg]", placeholder: "Enter value" },
+      { id: "v1", label: "Cart 1 Speed (v₁) [m/s]", label_ar: "سرعة العربة 1 (v₁) [m/s]", placeholder: "Enter value" },
+      { id: "m2", label: "Cart 2 Mass (m₂) [kg]", label_ar: "كتلة العربة 2 (m₂) [kg]", placeholder: "Enter value" },
+      { id: "v2", label: "Cart 2 Speed (v₂) [m/s]", label_ar: "سرعة العربة 2 (v₂) [m/s]", placeholder: "Enter value" },
+      { id: "e", label: "Restitution (e) [0-1]", label_ar: "معامل الارتداد (e) [0-1]", placeholder: "Enter value" }
     ]
   };
 
@@ -1836,9 +1867,10 @@ function renderSolverInputs(topic) {
     const d = document.createElement("div");
     d.className = "solver-var-input";
     const lbl = (isAr && f.label_ar) ? f.label_ar : f.label;
+    const ph = isAr ? "أدخل القيمة" : f.placeholder;
     d.innerHTML = `
       <label class="solver-var-label">${lbl}</label>
-      <input type="number" step="any" id="sol_var_${f.id}" placeholder="${f.placeholder}">
+      <input type="number" step="any" id="sol_var_${f.id}" placeholder="${ph}" value="">
     `;
     container.appendChild(d);
   });
@@ -1968,7 +2000,7 @@ function setupAiTutor() {
 }
 
 // ----------------------------------------------------------------------------
-// Practical Exam Mode (Anti-Cheat Randomized Sheets)
+// Practical Exam Mode (Anti-Cheat Randomized Sheets & Optional Simulation Flow)
 // ----------------------------------------------------------------------------
 function setupExamMode() {
   const examEntryBox = document.getElementById("examEntryBox");
@@ -2000,6 +2032,11 @@ function setupExamMode() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Sheet not found");
 
+      if (data.is_locked) {
+        alert(data.message || "This exam is currently locked by the instructor. / هذا الاختبار مغلق حالياً بواسطة المدرس.");
+        return;
+      }
+
       if (data.already_submitted) {
         showExamResult(data.submission.score, data.submission.passed, "Exam already submitted.");
         return;
@@ -2008,15 +2045,34 @@ function setupExamMode() {
       activeSheetCode = data.sheet_code;
       activeStudentEmail = email;
       activeStudentName = name;
+      AppState.activeExam = {
+        sheetCode: data.sheet_code,
+        studentEmail: email,
+        studentName: name,
+        questions: data.questions,
+        activeModel: data.active_model || "A",
+        submitted: false
+      };
 
       document.getElementById("examEntryBox").style.display = "none";
       const activeSheetEl = document.getElementById("examActiveSheet");
       activeSheetEl.style.display = "block";
       activeSheetEl.style.maxWidth = "800px";
       activeSheetEl.style.margin = "20px auto";
-      document.getElementById("examCodeBadge").textContent = data.sheet_code;
+      document.getElementById("examCodeBadge").textContent = `${data.sheet_code} [Set ${data.active_model || 'A'}]`;
       document.getElementById("examActiveTitle").textContent = data.title;
-      document.getElementById("examStudentGreeting").textContent = `Candidate: ${name} (${email})`;
+      document.getElementById("examStudentGreeting").innerHTML = `
+        Candidate: <strong>${name}</strong> (${email})
+        <button type="button" class="btn btn-outline btn-sm" id="exitExamBtn" style="margin-left:14px; padding:2px 8px; font-size:0.75rem;">Exit / خروج</button>
+      `;
+
+      document.getElementById("exitExamBtn")?.addEventListener("click", () => {
+        if (confirm("Exit active exam? You can resume anytime before final submission.")) {
+          AppState.activeExam = null;
+          document.getElementById("examActiveSheet").style.display = "none";
+          document.getElementById("examEntryBox").style.display = "block";
+        }
+      });
 
       const list = document.getElementById("examQuestionsList");
       list.innerHTML = "";
@@ -2071,6 +2127,7 @@ function setupExamMode() {
         list.appendChild(item);
       });
 
+      // Simulation Button Behavior: navigate directly to simulation and do NOT lose exam state!
       document.querySelectorAll(".test-in-lab-btn").forEach((btn) => {
         btn.addEventListener("click", () => {
           const topic = btn.dataset.topic;
@@ -2087,16 +2144,30 @@ function setupExamMode() {
     }
   });
 
-  const submitBtn = document.getElementById("submitExamBtn");
+  // Fix Exam Submit Button (Handles both submitExamFinalBtn and submitExamBtn reliably)
+  const submitBtn = document.getElementById("submitExamFinalBtn") || document.getElementById("submitExamBtn");
   if (submitBtn) {
     submitBtn.addEventListener("click", async () => {
       const answers = {};
+      let answeredCount = 0;
       document.querySelectorAll(".exam-answer-input").forEach((inp) => {
-        answers[inp.dataset.qid] = inp.value;
+        if (inp.value.trim() !== "") answeredCount++;
+        answers[inp.dataset.qid] = inp.value.trim();
       });
       document.querySelectorAll(".exam-mcq-radio:checked").forEach((rad) => {
+        answeredCount++;
         answers[rad.dataset.qid] = rad.value;
       });
+
+      if (answeredCount === 0) {
+        if (!confirm("You have not entered answers to the questions. Submit anyway? / لم تقم بإدخال إجابات، هل تريد التسليم على أية حال؟")) {
+          return;
+        }
+      }
+
+      submitBtn.disabled = true;
+      const origHtml = submitBtn.innerHTML;
+      submitBtn.innerHTML = `<span class="spinner-sm" style="display:inline-block; margin-right:8px;"></span> Submitting answers...`;
 
       try {
         const res = await fetch("/api/exam/submit", {
@@ -2112,9 +2183,15 @@ function setupExamMode() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || "Submission failed");
 
+        if (AppState.activeExam) {
+          AppState.activeExam.submitted = true;
+        }
         showExamResult(data.score, data.passed, data.message);
       } catch (err) {
-        alert(err.message || "Error submitting exam.");
+        alert("Exam Submission Error / خطأ في تسليم الامتحان: " + (err.message || "Failed to submit answers."));
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = origHtml;
       }
     });
   }
@@ -2325,7 +2402,91 @@ function setupInstructorPortal() {
     });
   }
 
-  const codeInput = document.getElementById("newSheetCode");
+  // Instructor Exam Availability Toggle (Lock / Unlock)
+  const toggleLockBtn = document.getElementById("toggleExamLockBtn");
+  if (toggleLockBtn) {
+    toggleLockBtn.addEventListener("click", async () => {
+      const sheetCode = select?.value;
+      if (!sheetCode) return;
+      const isLocking = toggleLockBtn.textContent.includes("Lock");
+      try {
+        toggleLockBtn.disabled = true;
+        const res = await fetch(`/api/instructor/sheet/${sheetCode}/settings`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            instructor_email: AppState.user?.email,
+            is_locked: isLocking
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Failed to update exam status");
+        loadInstructorAnalytics(sheetCode);
+      } catch (err) {
+        alert("Error updating exam status: " + err.message);
+      } finally {
+        toggleLockBtn.disabled = false;
+      }
+    });
+  }
+
+  // Instructor Exam Model Settings (Switch Sets A, B, C)
+  const saveSettingsBtn = document.getElementById("saveSheetSettingsBtn");
+  if (saveSettingsBtn) {
+    saveSettingsBtn.addEventListener("click", async () => {
+      const sheetCode = select?.value;
+      const modelSelect = document.getElementById("instructorModelSelect");
+      if (!sheetCode || !modelSelect) return;
+      const feedback = document.getElementById("sheetSettingsFeedback");
+
+      try {
+        saveSettingsBtn.disabled = true;
+        const res = await fetch(`/api/instructor/sheet/${sheetCode}/settings`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            instructor_email: AppState.user?.email,
+            active_model: modelSelect.value
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Failed to save settings");
+
+        if (feedback) {
+          feedback.textContent = `✓ Exam model switched to Model ${modelSelect.value} for '${sheetCode}'.`;
+          feedback.style.display = "block";
+          setTimeout(() => { feedback.style.display = "none"; }, 3500);
+        }
+      } catch (err) {
+        alert("Error saving exam settings: " + err.message);
+      } finally {
+        saveSettingsBtn.disabled = false;
+      }
+    });
+  }
+
+  // Lab Sheet Creation Modal & Inputs Wiring
+  const createSheetModal = document.getElementById("createSheetModal");
+  const openModalBtn = document.getElementById("openCreateSheetModalBtn");
+  const closeModalBtn = document.getElementById("closeCreateSheetModalBtn");
+
+  if (openModalBtn && createSheetModal) {
+    openModalBtn.addEventListener("click", () => {
+      createSheetModal.style.display = "flex";
+      const codeInput = document.getElementById("newSheetCodeInput") || document.getElementById("newSheetCode");
+      if (codeInput && !codeInput.value) {
+        codeInput.value = `LAB-${Math.floor(1000 + Math.random() * 9000)}`;
+      }
+    });
+  }
+
+  if (closeModalBtn && createSheetModal) {
+    closeModalBtn.addEventListener("click", () => {
+      createSheetModal.style.display = "none";
+    });
+  }
+
+  const codeInput = document.getElementById("newSheetCodeInput") || document.getElementById("newSheetCode");
   if (codeInput) {
     codeInput.value = `LAB-${Math.floor(1000 + Math.random() * 9000)}`;
   }
@@ -2403,10 +2564,15 @@ function setupInstructorPortal() {
     });
   }
 
-  document.getElementById("createSheetBtn")?.addEventListener("click", async () => {
-    const code = document.getElementById("newSheetCode").value.trim().toUpperCase();
-    const title = document.getElementById("newSheetTitle").value.trim();
-    const pass = parseFloat(document.getElementById("newSheetPass").value) || 65;
+  const createBtn = document.getElementById("submitCreateSheetBtn") || document.getElementById("createSheetBtn");
+  createBtn?.addEventListener("click", async () => {
+    const codeInp = document.getElementById("newSheetCodeInput") || document.getElementById("newSheetCode");
+    const titleInp = document.getElementById("newSheetTitleInput") || document.getElementById("newSheetTitle");
+    const passInp = document.getElementById("newSheetPassInput") || document.getElementById("newSheetPass");
+
+    const code = codeInp ? codeInp.value.trim().toUpperCase() : "";
+    const title = titleInp ? titleInp.value.trim() : "";
+    const pass = passInp ? (parseFloat(passInp.value) || 60) : 60;
 
     if (!code || !title) {
       alert("Please fill sheet code and title.");
@@ -2468,10 +2634,11 @@ function setupInstructorPortal() {
       }
 
       alert(`Exam Form '${data.sheet_code}' deployed successfully! Share this code with your students.`);
+      if (createSheetModal) createSheetModal.style.display = "none";
       await refreshInstructorSheets();
       if (select) select.value = data.sheet_code;
       loadInstructorAnalytics(data.sheet_code);
-      if (codeInput) codeInput.value = `LAB-${Math.floor(1000 + Math.random() * 9000)}`;
+      if (codeInp) codeInp.value = `LAB-${Math.floor(1000 + Math.random() * 9000)}`;
     } catch (err) {
       alert("Error creating sheet.");
     }
@@ -2531,6 +2698,24 @@ async function loadInstructorAnalytics(sheetCode) {
     document.getElementById("statClassAvg").textContent = `${data.average_score}%`;
     document.getElementById("statPassRate").textContent = `${data.pass_rate}%`;
     document.getElementById("submissionsCountBadge").textContent = `${data.total_students} Students`;
+
+    // Sync sheet settings controls
+    if (data.sheet) {
+      const isLocked = Boolean(data.sheet.is_locked);
+      const lockBadge = document.getElementById("sheetLockStatusBadge");
+      if (lockBadge) {
+        lockBadge.textContent = isLocked ? "LOCKED" : "ACTIVE / OPEN";
+        lockBadge.className = `badge ${isLocked ? 'badge-danger' : 'badge-success'}`;
+      }
+      const toggleLockBtn = document.getElementById("toggleExamLockBtn");
+      if (toggleLockBtn) {
+        toggleLockBtn.textContent = isLocked ? "Unlock Exam" : "Lock Exam";
+      }
+      const modelSelect = document.getElementById("instructorModelSelect");
+      if (modelSelect && data.sheet.active_model) {
+        modelSelect.value = data.sheet.active_model;
+      }
+    }
 
     // Export link scoped to instructor
     document.getElementById("exportCsvBtn").href = `/api/instructor/sheet/${sheetCode}/export-csv?email=${encodeURIComponent(email)}`;
@@ -2713,7 +2898,8 @@ let otpCountdownTimer = null;
 let currentOtpEmail = "";
 
 function setupAuthGate() {
-  const modal = document.getElementById("authModal");
+  const authPageView = document.getElementById("authPageView");
+  const mainWorkspace = document.getElementById("mainWorkspace");
   const alertBox = document.getElementById("authAlertBox");
 
   const tabLogin = document.getElementById("authTabLogin");
@@ -2721,16 +2907,24 @@ function setupAuthGate() {
   const stateLogin = document.getElementById("authStateLogin");
   const stateRegister = document.getElementById("authStateRegister");
   const stateOtp = document.getElementById("authStateOtp");
+  const stateForgotPassword = document.getElementById("authStateForgotPassword");
+  const stateResetPassword = document.getElementById("authStateResetPassword");
   const navTabs = document.getElementById("authNavTabs");
 
   const switchToRegisterLink = document.getElementById("switchToRegisterLink");
   const switchToLoginLink = document.getElementById("switchToLoginLink");
   const otpBackToLoginBtn = document.getElementById("otpBackToLoginBtn");
+  const forgotPasswordLink = document.getElementById("forgotPasswordLink");
+  const forgotBackToLoginBtn = document.getElementById("forgotBackToLoginBtn");
+  const resetBackToLoginBtn = document.getElementById("resetBackToLoginBtn");
 
   const submitLoginBtn = document.getElementById("submitLoginBtn");
   const submitRegisterBtn = document.getElementById("submitRegisterBtn");
   const submitOtpBtn = document.getElementById("submitOtpBtn");
   const resendOtpBtn = document.getElementById("resendOtpBtn");
+  const submitForgotEmailBtn = document.getElementById("submitForgotEmailBtn");
+  const submitResetPasswordBtn = document.getElementById("submitResetPasswordBtn");
+
   const logoutBtn = document.getElementById("logoutBtn");
   const loginBtn = document.getElementById("loginBtn");
 
@@ -2759,31 +2953,69 @@ function setupAuthGate() {
   function switchState(state, email = "") {
     clearAlert();
     if (state === "login") {
-      navTabs.style.display = "grid";
-      tabLogin.classList.add("active");
-      tabRegister.classList.remove("active");
-      stateLogin.style.display = "block";
-      stateRegister.style.display = "none";
-      stateOtp.style.display = "none";
+      if (navTabs) navTabs.style.display = "grid";
+      if (tabLogin) tabLogin.classList.add("active");
+      if (tabRegister) tabRegister.classList.remove("active");
+      if (stateLogin) stateLogin.style.display = "block";
+      if (stateRegister) stateRegister.style.display = "none";
+      if (stateOtp) stateOtp.style.display = "none";
+      if (stateForgotPassword) stateForgotPassword.style.display = "none";
+      if (stateResetPassword) stateResetPassword.style.display = "none";
     } else if (state === "register") {
-      navTabs.style.display = "grid";
-      tabRegister.classList.add("active");
-      tabLogin.classList.remove("active");
-      stateRegister.style.display = "block";
-      stateLogin.style.display = "none";
-      stateOtp.style.display = "none";
+      if (navTabs) navTabs.style.display = "grid";
+      if (tabRegister) tabRegister.classList.add("active");
+      if (tabLogin) tabLogin.classList.remove("active");
+      if (stateRegister) stateRegister.style.display = "block";
+      if (stateLogin) stateLogin.style.display = "none";
+      if (stateOtp) stateOtp.style.display = "none";
+      if (stateForgotPassword) stateForgotPassword.style.display = "none";
+      if (stateResetPassword) stateResetPassword.style.display = "none";
     } else if (state === "otp") {
-      navTabs.style.display = "none";
-      stateLogin.style.display = "none";
-      stateRegister.style.display = "none";
-      stateOtp.style.display = "block";
+      if (navTabs) navTabs.style.display = "none";
+      if (stateLogin) stateLogin.style.display = "none";
+      if (stateRegister) stateRegister.style.display = "none";
+      if (stateOtp) stateOtp.style.display = "block";
+      if (stateForgotPassword) stateForgotPassword.style.display = "none";
+      if (stateResetPassword) stateResetPassword.style.display = "none";
 
       currentOtpEmail = (email || "").toLowerCase().trim();
-      document.getElementById("otpTargetEmailText").textContent = currentOtpEmail;
+      const targetEl = document.getElementById("otpTargetEmailText");
+      if (targetEl) targetEl.textContent = currentOtpEmail;
       const otpInput = document.getElementById("otpCodeInput");
-      otpInput.value = "";
-      setTimeout(() => otpInput.focus(), 150);
+      if (otpInput) {
+        otpInput.value = "";
+        setTimeout(() => otpInput.focus(), 150);
+      }
       startOtpCountdown(300); // 5 minutes
+    } else if (state === "forgot") {
+      if (navTabs) navTabs.style.display = "none";
+      if (stateLogin) stateLogin.style.display = "none";
+      if (stateRegister) stateRegister.style.display = "none";
+      if (stateOtp) stateOtp.style.display = "none";
+      if (stateForgotPassword) stateForgotPassword.style.display = "block";
+      if (stateResetPassword) stateResetPassword.style.display = "none";
+
+      const forgotEmailInput = document.getElementById("forgotEmail");
+      if (forgotEmailInput) {
+        if (email) forgotEmailInput.value = email;
+        setTimeout(() => forgotEmailInput.focus(), 150);
+      }
+    } else if (state === "reset") {
+      if (navTabs) navTabs.style.display = "none";
+      if (stateLogin) stateLogin.style.display = "none";
+      if (stateRegister) stateRegister.style.display = "none";
+      if (stateOtp) stateOtp.style.display = "none";
+      if (stateForgotPassword) stateForgotPassword.style.display = "none";
+      if (stateResetPassword) stateResetPassword.style.display = "block";
+
+      currentOtpEmail = (email || "").toLowerCase().trim();
+      const resetTargetEl = document.getElementById("resetTargetEmailText");
+      if (resetTargetEl) resetTargetEl.textContent = currentOtpEmail;
+      const resetOtpInput = document.getElementById("resetOtpCodeInput");
+      if (resetOtpInput) {
+        resetOtpInput.value = "";
+        setTimeout(() => resetOtpInput.focus(), 150);
+      }
     }
   }
 
@@ -2814,211 +3046,327 @@ function setupAuthGate() {
   }
 
   // Navigation between states
-  tabLogin.addEventListener("click", () => switchState("login"));
-  tabRegister.addEventListener("click", () => switchState("register"));
-  switchToRegisterLink.addEventListener("click", () => switchState("register"));
-  switchToLoginLink.addEventListener("click", () => switchState("login"));
-  otpBackToLoginBtn.addEventListener("click", () => {
-    if (otpCountdownTimer) clearInterval(otpCountdownTimer);
-    switchState("login");
-  });
-
-  if (loginBtn) {
-    loginBtn.addEventListener("click", () => {
-      modal.style.display = "flex";
+  if (tabLogin) tabLogin.addEventListener("click", () => switchState("login"));
+  if (tabRegister) tabRegister.addEventListener("click", () => switchState("register"));
+  if (switchToRegisterLink) switchToRegisterLink.addEventListener("click", () => switchState("register"));
+  if (switchToLoginLink) switchToLoginLink.addEventListener("click", () => switchState("login"));
+  if (otpBackToLoginBtn) {
+    otpBackToLoginBtn.addEventListener("click", () => {
+      if (otpCountdownTimer) clearInterval(otpCountdownTimer);
       switchState("login");
     });
   }
+  if (forgotPasswordLink) {
+    forgotPasswordLink.addEventListener("click", () => {
+      const loginEmailVal = document.getElementById("loginEmail")?.value.trim() || "";
+      switchState("forgot", loginEmailVal);
+    });
+  }
+  if (forgotBackToLoginBtn) {
+    forgotBackToLoginBtn.addEventListener("click", () => switchState("login"));
+  }
+  if (resetBackToLoginBtn) {
+    resetBackToLoginBtn.addEventListener("click", () => switchState("login"));
+  }
 
+  if (loginBtn) {
+    loginBtn.addEventListener("click", () => {
+      if (mainWorkspace) mainWorkspace.style.display = "none";
+      if (authPageView) authPageView.style.display = "flex";
+      switchState("login");
+    });
+  }
   // 1. Submit Login Form
-  document.getElementById("loginForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    clearAlert();
-    const email = document.getElementById("loginEmail").value.trim();
-    const password = document.getElementById("loginPassword").value.trim();
+  const loginForm = document.getElementById("loginForm");
+  if (loginForm) {
+    loginForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      clearAlert();
+      const email = document.getElementById("loginEmail").value.trim();
+      const password = document.getElementById("loginPassword").value.trim();
 
-    if (!email || !password) {
-      showAlert("Please enter both email and password / يرجى إدخال البريد الإلكتروني وكلمة المرور.");
-      return;
-    }
-
-    setButtonLoading(submitLoginBtn, true);
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password })
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        // If unverified, switch to OTP state
-        if (res.status === 403 && data.detail && (data.detail.includes("not verified") || data.detail.includes("غير مفعل"))) {
-          switchState("otp", email);
-          showAlert(data.detail, false);
-          return;
-        }
-        throw new Error(data.detail || "Authentication failed");
+      if (!email || !password) {
+        showAlert("Please enter both email and password / يرجى إدخال البريد الإلكتروني وكلمة المرور.");
+        return;
       }
 
-      // Login Successful
-      AppState.user = data.user;
-      localStorage.setItem("physix_user", JSON.stringify(data.user));
-
-      // Restore saved stars/progress
-      if (data.progress) {
-        data.progress.forEach((p) => {
-          AppState.progress[p.module_id] = { stars: p.stars, best_score: p.best_score };
+      setButtonLoading(submitLoginBtn, true);
+      try {
+        const res = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password })
         });
-        updateUIStars();
-      }
+        const data = await res.json();
 
-      applyUserSession(data.user);
-      modal.style.display = "none";
-      sfx.playSuccess();
-    } catch (err) {
-      showAlert(err.message);
-    } finally {
-      setButtonLoading(submitLoginBtn, false);
-    }
-  });
+        if (!res.ok) {
+          // If unverified, switch to OTP state
+          if (res.status === 403 && data.detail && (data.detail.includes("not verified") || data.detail.includes("غير مفعل"))) {
+            switchState("otp", email);
+            showAlert(data.detail, false);
+            return;
+          }
+          throw new Error(data.detail || "Authentication failed");
+        }
+
+        // Login Successful
+        AppState.user = data.user;
+        localStorage.setItem("physix_user", JSON.stringify(data.user));
+
+        // Restore saved stars/progress
+        if (data.progress) {
+          data.progress.forEach((p) => {
+            AppState.progress[p.module_id] = { stars: p.stars, best_score: p.best_score };
+          });
+          updateUIStars();
+        }
+
+        applyUserSession(data.user);
+        if (authPageView) authPageView.style.display = "none";
+        if (mainWorkspace) mainWorkspace.style.display = "block";
+        sfx.playSuccess();
+      } catch (err) {
+        showAlert(err.message);
+      } finally {
+        setButtonLoading(submitLoginBtn, false);
+      }
+    });
+  }
 
   // 2. Submit Register Form
-  document.getElementById("registerForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    clearAlert();
-    const role = document.querySelector("input[name='registerRole']:checked").value;
-    const fullName = document.getElementById("registerFullName").value.trim();
-    const email = document.getElementById("registerEmail").value.trim();
-    const password = document.getElementById("registerPassword").value.trim();
+  const registerForm = document.getElementById("registerForm");
+  if (registerForm) {
+    registerForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      clearAlert();
+      const role = document.querySelector("input[name='registerRole']:checked")?.value || "student";
+      const fullName = document.getElementById("registerFullName").value.trim();
+      const email = document.getElementById("registerEmail").value.trim();
+      const password = document.getElementById("registerPassword").value.trim();
 
-    if (!fullName || !email || !password) {
-      showAlert("Please fill out all registration fields / يرجى تعبئة كافة الحقول.");
-      return;
-    }
-
-    if (password.length < 6) {
-      showAlert("Password must be at least 6 characters / كلمة المرور يجب أن لا تقل عن 6 أحرف.");
-      return;
-    }
-
-    setButtonLoading(submitRegisterBtn, true);
-    try {
-      const res = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          password,
-          full_name: fullName,
-          role
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Registration failed");
-
-      // Switch to OTP Verification State
-      switchState("otp", email);
-      showAlert(`✓ Verification code sent to ${email}. Valid for 5 minutes.`, true);
-      sfx.playClick();
-    } catch (err) {
-      showAlert(err.message);
-    } finally {
-      setButtonLoading(submitRegisterBtn, false);
-    }
-  });
-
-  // 3. Submit OTP Form
-  document.getElementById("otpForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    clearAlert();
-    const code = document.getElementById("otpCodeInput").value.trim();
-
-    if (!code || code.length !== 6) {
-      showAlert("Please enter the complete 6-digit numeric OTP code / يرجى إدخال رمز التحقق المكون من 6 أرقام.");
-      return;
-    }
-
-    setButtonLoading(submitOtpBtn, true);
-    try {
-      const res = await fetch("/api/auth/verify-otp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: currentOtpEmail,
-          otp_code: code
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "OTP verification failed");
-
-      if (otpCountdownTimer) clearInterval(otpCountdownTimer);
-
-      AppState.user = data.user;
-      localStorage.setItem("physix_user", JSON.stringify(data.user));
-
-      if (data.progress) {
-        data.progress.forEach((p) => {
-          AppState.progress[p.module_id] = { stars: p.stars, best_score: p.best_score };
-        });
-        updateUIStars();
+      if (!fullName || !email || !password) {
+        showAlert("Please fill out all registration fields / يرجى تعبئة كافة الحقول.");
+        return;
       }
 
-      applyUserSession(data.user);
-      modal.style.display = "none";
-      sfx.playSuccess();
-    } catch (err) {
-      showAlert(err.message);
-    } finally {
-      setButtonLoading(submitOtpBtn, false);
-    }
-  });
+      if (password.length < 6) {
+        showAlert("Password must be at least 6 characters / كلمة المرور يجب أن لا تقل عن 6 أحرف.");
+        return;
+      }
+
+      setButtonLoading(submitRegisterBtn, true);
+      try {
+        const res = await fetch("/api/auth/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email,
+            password,
+            full_name: fullName,
+            role
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Registration failed");
+
+        // Switch to OTP Verification State
+        switchState("otp", email);
+        showAlert(`✓ Verification code sent to ${email}. Valid for 5 minutes.`, true);
+        sfx.playClick();
+      } catch (err) {
+        showAlert(err.message);
+      } finally {
+        setButtonLoading(submitRegisterBtn, false);
+      }
+    });
+  }
+
+  // 3. Submit OTP Form
+  const otpForm = document.getElementById("otpForm");
+  if (otpForm) {
+    otpForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      clearAlert();
+      const code = document.getElementById("otpCodeInput").value.trim();
+
+      if (!code || code.length !== 6) {
+        showAlert("Please enter the complete 6-digit numeric OTP code / يرجى إدخال رمز التحقق المكون من 6 أرقام.");
+        return;
+      }
+
+      setButtonLoading(submitOtpBtn, true);
+      try {
+        const res = await fetch("/api/auth/verify-otp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: currentOtpEmail,
+            otp_code: code
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "OTP verification failed");
+
+        if (otpCountdownTimer) clearInterval(otpCountdownTimer);
+
+        AppState.user = data.user;
+        localStorage.setItem("physix_user", JSON.stringify(data.user));
+
+        if (data.progress) {
+          data.progress.forEach((p) => {
+            AppState.progress[p.module_id] = { stars: p.stars, best_score: p.best_score };
+          });
+          updateUIStars();
+        }
+
+        applyUserSession(data.user);
+        if (authPageView) authPageView.style.display = "none";
+        if (mainWorkspace) mainWorkspace.style.display = "block";
+        sfx.playSuccess();
+      } catch (err) {
+        showAlert(err.message);
+      } finally {
+        setButtonLoading(submitOtpBtn, false);
+      }
+    });
+  }
 
   // 4. Resend OTP Button
-  resendOtpBtn.addEventListener("click", async () => {
-    clearAlert();
-    setButtonLoading(resendOtpBtn, true);
-    try {
-      const res = await fetch("/api/auth/resend-otp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: currentOtpEmail })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Could not resend OTP");
+  if (resendOtpBtn) {
+    resendOtpBtn.addEventListener("click", async () => {
+      clearAlert();
+      setButtonLoading(resendOtpBtn, true);
+      try {
+        const res = await fetch("/api/auth/resend-otp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: currentOtpEmail })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Could not resend OTP");
 
-      startOtpCountdown(300);
-      showAlert("✓ A fresh 6-digit OTP code has been dispatched to your email.", true);
-    } catch (err) {
-      showAlert(err.message);
-    } finally {
-      setButtonLoading(resendOtpBtn, false);
-    }
-  });
+        startOtpCountdown(300);
+        showAlert("✓ A fresh 6-digit OTP code has been dispatched to your email.", true);
+      } catch (err) {
+        showAlert(err.message);
+      } finally {
+        setButtonLoading(resendOtpBtn, false);
+      }
+    });
+  }
 
-  // 5. Sign Out
-  logoutBtn.addEventListener("click", () => {
-    if (confirm("Are you sure you want to sign out? / هل تريد بالتأكيد تسجيل الخروج؟")) {
-      AppState.user = null;
-      localStorage.removeItem("physix_user");
-      AppState.progress = {};
-      updateUIStars();
+  // 5. Submit Forgot Password Form
+  const forgotPasswordForm = document.getElementById("forgotPasswordForm");
+  if (forgotPasswordForm) {
+    forgotPasswordForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      clearAlert();
+      const email = document.getElementById("forgotEmail").value.trim();
 
-      document.getElementById("loggedInBox").style.display = "none";
-      if (loginBtn) loginBtn.style.display = "none";
+      if (!email) {
+        showAlert("Please enter your registered email address.");
+        return;
+      }
 
-      // Re-trigger mandatory auth gate modal immediately
-      modal.style.display = "flex";
-      switchState("login");
-    }
-  });
+      setButtonLoading(submitForgotEmailBtn, true);
+      try {
+        const res = await fetch("/api/auth/forgot-password", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Could not process password reset request.");
 
-  // Mandatory Auth Check: if user session exists, resume; otherwise enforce modal
+        switchState("reset", email);
+        showAlert(`✓ ${data.message || 'Reset code sent to your email.'}`, true);
+        sfx.playClick();
+      } catch (err) {
+        showAlert(err.message);
+      } finally {
+        setButtonLoading(submitForgotEmailBtn, false);
+      }
+    });
+  }
+
+  // 6. Submit Reset Password Form
+  const resetPasswordForm = document.getElementById("resetPasswordForm");
+  if (resetPasswordForm) {
+    resetPasswordForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      clearAlert();
+      const code = document.getElementById("resetOtpCodeInput").value.trim();
+      const newPassword = document.getElementById("resetNewPassword").value.trim();
+
+      if (!code || code.length !== 6) {
+        showAlert("Please enter the 6-digit reset code received by email.");
+        return;
+      }
+      if (!newPassword || newPassword.length < 6) {
+        showAlert("New password must be at least 6 characters.");
+        return;
+      }
+
+      setButtonLoading(submitResetPasswordBtn, true);
+      try {
+        const res = await fetch("/api/auth/reset-password", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: currentOtpEmail,
+            otp_code: code,
+            new_password: newPassword
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Failed to reset password.");
+
+        switchState("login");
+        showAlert("✓ Password successfully reset! You can now sign in with your new password.", true);
+        const loginEmailInput = document.getElementById("loginEmail");
+        if (loginEmailInput) loginEmailInput.value = currentOtpEmail;
+        const loginPasswordInput = document.getElementById("loginPassword");
+        if (loginPasswordInput) {
+          loginPasswordInput.value = "";
+          loginPasswordInput.focus();
+        }
+        sfx.playSuccess();
+      } catch (err) {
+        showAlert(err.message);
+      } finally {
+        setButtonLoading(submitResetPasswordBtn, false);
+      }
+    });
+  }
+
+  // 7. Sign Out
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", () => {
+      if (confirm("Are you sure you want to sign out? / هل تريد بالتأكيد تسجيل الخروج؟")) {
+        AppState.user = null;
+        localStorage.removeItem("physix_user");
+        AppState.progress = {};
+        updateUIStars();
+
+        document.getElementById("loggedInBox").style.display = "none";
+        if (loginBtn) loginBtn.style.display = "none";
+
+        // Show dedicated auth page view and hide workspace
+        if (mainWorkspace) mainWorkspace.style.display = "none";
+        if (authPageView) authPageView.style.display = "flex";
+        switchState("login");
+      }
+    });
+  }
+
+  // Mandatory Auth Check: if user session exists, resume workspace; otherwise enforce dedicated auth page
   if (!AppState.user) {
-    modal.style.display = "flex";
+    if (authPageView) authPageView.style.display = "flex";
+    if (mainWorkspace) mainWorkspace.style.display = "none";
     switchState("login");
   } else {
-    modal.style.display = "none";
+    if (authPageView) authPageView.style.display = "none";
+    if (mainWorkspace) mainWorkspace.style.display = "block";
     applyUserSession(AppState.user);
     fetchUserProfile(AppState.user.email);
   }

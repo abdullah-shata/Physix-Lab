@@ -27,6 +27,214 @@
   <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 </head>
 <body>
+  <!-- ============================================================= -->
+  <!-- DEDICATED AUTHENTICATION VIEW (Clean Dedicated Page) -->
+  <!-- ============================================================= -->
+  <div id="authPageView" class="auth-page-view">
+    <div class="auth-page-card">
+      <div class="auth-page-header">
+        <div class="brand auth-brand">
+          <div class="brand-icon">
+            <img src="/logo.jpg" alt="PhysiX Lab Logo" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;">
+          </div>
+          <div>
+            <h1 class="auth-title" data-i18n="auth_gate_title">PhysiX Lab</h1>
+            <p class="auth-subtitle" data-i18n="auth_gate_sub">Interactive Mechanics & Engineering Academic Platform</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab Switcher (State 1: Login, State 2: Register) -->
+      <div class="auth-nav-tabs" id="authNavTabs">
+        <button class="auth-tab active" id="authTabLogin" type="button">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg>
+          <span data-i18n="tab_signin">Sign In</span>
+        </button>
+        <button class="auth-tab" id="authTabRegister" type="button">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
+          <span data-i18n="tab_register">Create Account</span>
+        </button>
+      </div>
+
+      <!-- Global Alert / Status Box -->
+      <div class="auth-alert" id="authAlertBox" style="display:none;"></div>
+
+      <!-- STATE 1: LOGIN -->
+      <div class="auth-state-pane active" id="authStateLogin">
+        <form id="loginForm" onsubmit="return false;" class="auth-form">
+          <div class="form-group">
+            <label for="loginEmail" data-i18n="label_email">Institutional Email:</label>
+            <input type="email" class="form-input" id="loginEmail" placeholder="Enter your email" required autocomplete="username">
+          </div>
+          <div class="form-group">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <label for="loginPassword" data-i18n="label_password">Password:</label>
+              <button type="button" class="btn-link forgot-pwd-link" id="forgotPasswordLink" style="font-size:0.82rem; padding:0;" data-i18n="forgot_password_link">Forgot Password?</button>
+            </div>
+            <input type="password" class="form-input" id="loginPassword" placeholder="Enter your password" required autocomplete="current-password">
+          </div>
+          <div class="auth-actions">
+            <button class="btn btn-primary btn-block btn-lg" id="submitLoginBtn" type="submit">
+              <span class="btn-text" data-i18n="btn_signin_submit">Sign In</span>
+              <div class="spinner-sm" style="display:none;"></div>
+            </button>
+          </div>
+          <div class="auth-switch-link">
+            <span data-i18n="auth_no_account">Don't have an account?</span>
+            <button type="button" class="btn-link" id="switchToRegisterLink" data-i18n="tab_register">Create Account</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- STATE 2: CREATE ACCOUNT -->
+      <div class="auth-state-pane" id="authStateRegister" style="display:none;">
+        <form id="registerForm" onsubmit="return false;" class="auth-form">
+          <div class="form-group">
+            <label data-i18n="label_role">Your Academic Role:</label>
+            <div class="role-selector">
+              <label class="radio-label">
+                <input type="radio" name="registerRole" value="student" checked>
+                <span data-i18n="role_student">Student / طالب</span>
+              </label>
+              <label class="radio-label">
+                <input type="radio" name="registerRole" value="instructor">
+                <span data-i18n="role_instructor">Instructor / معيد</span>
+              </label>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="registerFullName" data-i18n="label_full_name">Full Name:</label>
+            <input type="text" class="form-input" id="registerFullName" placeholder="Enter your name" required>
+          </div>
+          <div class="form-group">
+            <label for="registerEmail" data-i18n="label_email">Institutional Email:</label>
+            <input type="email" class="form-input" id="registerEmail" placeholder="Enter your email" required autocomplete="email">
+          </div>
+          <div class="form-group">
+            <label for="registerPassword" data-i18n="label_password">Password (min 6 characters):</label>
+            <input type="password" class="form-input" id="registerPassword" placeholder="Enter your password" required minlength="6" autocomplete="new-password">
+          </div>
+          <div class="auth-actions">
+            <button class="btn btn-primary btn-block btn-lg" id="submitRegisterBtn" type="submit">
+              <span class="btn-text" data-i18n="btn_register_submit">Create Account & Send OTP</span>
+              <div class="spinner-sm" style="display:none;"></div>
+            </button>
+          </div>
+          <div class="auth-switch-link">
+            <span data-i18n="auth_have_account">Already have an account?</span>
+            <button type="button" class="btn-link" id="switchToLoginLink" data-i18n="tab_signin">Sign In</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- STATE 3: ENTER 6-DIGIT EMAIL OTP -->
+      <div class="auth-state-pane" id="authStateOtp" style="display:none;">
+        <div class="otp-verification-card">
+          <div class="otp-header-icon">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="4" width="20" height="16" rx="2"></rect>
+              <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path>
+            </svg>
+          </div>
+          <h4 class="otp-title" data-i18n="otp_title">Enter 6-Digit Email OTP</h4>
+          <p class="otp-desc">
+            <span data-i18n="otp_desc">A 6-digit verification code was dispatched to:</span><br>
+            <strong id="otpTargetEmailText" class="otp-email-highlight">user@university.edu</strong>
+          </p>
+
+          <form id="otpForm" onsubmit="return false;" class="auth-form">
+            <div class="form-group text-center">
+              <input type="text" class="form-input otp-code-input" id="otpCodeInput" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" placeholder="••••••" autocomplete="one-time-code" required autofocus>
+            </div>
+
+            <!-- Countdown Timer -->
+            <div class="otp-countdown-row">
+              <div class="otp-timer-box" id="otpTimerBox">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                <span data-i18n="otp_expires_in">Code expires in:</span>
+                <strong id="otpCountdownText">05:00</strong>
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" id="resendOtpBtn" disabled>
+                <span class="btn-text" data-i18n="btn_resend_otp">Resend Code</span>
+                <div class="spinner-sm" style="display:none;"></div>
+              </button>
+            </div>
+
+            <div class="auth-actions">
+              <button class="btn btn-primary btn-block btn-lg" id="submitOtpBtn" type="submit">
+                <span class="btn-text" data-i18n="btn_verify_otp">Verify OTP & Launch Platform</span>
+                <div class="spinner-sm" style="display:none;"></div>
+              </button>
+            </div>
+
+            <div class="auth-switch-link">
+              <button type="button" class="btn-link" id="otpBackToLoginBtn" data-i18n="btn_back_auth">← Back to Sign In</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- STATE 4: FORGOT PASSWORD (Enter Email) -->
+      <div class="auth-state-pane" id="authStateForgotPassword" style="display:none;">
+        <div class="forgot-pwd-box">
+          <h4 class="auth-state-title" data-i18n="forgot_password_title">Reset Password</h4>
+          <p class="auth-state-sub" data-i18n="forgot_password_sub">Enter your email address to receive a 6-digit password reset code.</p>
+          <form id="forgotPasswordForm" onsubmit="return false;" class="auth-form">
+            <div class="form-group">
+              <label for="forgotEmail" data-i18n="label_email">Institutional Email:</label>
+              <input type="email" class="form-input" id="forgotEmail" placeholder="Enter your email" required autocomplete="email">
+            </div>
+            <div class="auth-actions">
+              <button class="btn btn-primary btn-block btn-lg" id="submitForgotEmailBtn" type="submit">
+                <span class="btn-text" data-i18n="btn_send_reset_code">Send Reset Code</span>
+                <div class="spinner-sm" style="display:none;"></div>
+              </button>
+            </div>
+            <div class="auth-switch-link">
+              <button type="button" class="btn-link" id="forgotBackToLoginBtn" data-i18n="btn_back_auth">← Back to Sign In</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- STATE 5: RESET PASSWORD (Enter OTP & New Password) -->
+      <div class="auth-state-pane" id="authStateResetPassword" style="display:none;">
+        <div class="reset-pwd-box">
+          <h4 class="auth-state-title" data-i18n="reset_password_title">Set New Password</h4>
+          <p class="auth-state-sub" data-i18n="reset_password_sub">Enter the 6-digit code sent to your email and your new password.</p>
+          <p class="otp-desc">
+            <span data-i18n="otp_desc">Reset code sent to:</span> <strong id="resetTargetEmailText" class="otp-email-highlight">user@university.edu</strong>
+          </p>
+          <form id="resetPasswordForm" onsubmit="return false;" class="auth-form">
+            <div class="form-group text-center">
+              <label for="resetOtpCodeInput">6-Digit Reset Code:</label>
+              <input type="text" class="form-input otp-code-input" id="resetOtpCodeInput" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" placeholder="••••••" required autofocus>
+            </div>
+            <div class="form-group">
+              <label for="resetNewPassword" data-i18n="label_new_password">New Password (min 6 characters):</label>
+              <input type="password" class="form-input" id="resetNewPassword" placeholder="Enter your password" required minlength="6" autocomplete="new-password">
+            </div>
+            <div class="auth-actions">
+              <button class="btn btn-primary btn-block btn-lg" id="submitResetPasswordBtn" type="submit">
+                <span class="btn-text" data-i18n="btn_reset_password_submit">Reset Password & Sign In</span>
+                <div class="spinner-sm" style="display:none;"></div>
+              </button>
+            </div>
+            <div class="auth-switch-link">
+              <button type="button" class="btn-link" id="resetBackToLoginBtn" data-i18n="btn_back_auth">← Back to Sign In</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <!-- MAIN WORKSPACE VIEW (Active after Authentication) -->
+  <!-- ============================================================= -->
+  <div id="mainWorkspace" class="main-workspace-view" style="display:none;">
+
   <!-- Top Application Bar -->
   <header class="app-header">
     <div class="header-left">
@@ -521,9 +729,31 @@
               </select>
             </div>
             <div class="sheet-meta-box" id="sheetMetaBox">
-              <p><strong>Title:</strong> General Physics I Practical</p>
-              <p><strong>Passing Score:</strong> 60%</p>
-              <div class="export-actions">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <span class="badge badge-success" id="sheetLockStatusBadge">🟢 Exam Open</span>
+                <button type="button" class="btn btn-outline btn-sm" id="toggleExamLockBtn">Lock Exam</button>
+              </div>
+              <p><strong>Title:</strong> <span id="sheetMetaTitle">General Physics I Practical</span></p>
+              <p><strong>Passing Score:</strong> <span id="sheetMetaPass">60%</span></p>
+
+              <!-- Exam Model / Question Variant Settings -->
+              <div class="form-group" style="margin-top:14px;">
+                <label style="font-size:0.85rem; font-weight:600;">Active Exam Model / Variant:</label>
+                <select class="form-select" id="instructorModelSelect">
+                  <option value="A">Model A: Standard Mechanics Core (6 Random Anti-Cheat Topics)</option>
+                  <option value="B">Model B: Kinematics & Advanced Projectiles Focus</option>
+                  <option value="C">Model C: Dynamics, Friction & Elastic Collisions Focus</option>
+                </select>
+              </div>
+
+              <div style="display:flex; gap:8px; margin-top:10px;">
+                <button type="button" class="btn btn-primary btn-sm btn-block" id="saveSheetSettingsBtn">
+                  Save Exam Model Settings
+                </button>
+              </div>
+              <div id="sheetSettingsFeedback" class="alert alert-success" style="display:none; margin-top:10px; font-size:0.82rem; padding:8px 12px;"></div>
+
+              <div class="export-actions" style="margin-top:14px;">
                 <a href="/api/instructor/sheet/MECH-2026/export-csv" class="btn btn-secondary btn-block" id="exportCsvBtn" download>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                   <span data-i18n="btn_export_csv">Download Grade Roster (CSV / Excel)</span>
@@ -620,166 +850,13 @@
     </section>
 
   </main>
+  </div> <!-- /mainWorkspace -->
 
   <!-- ============================================================= -->
   <!-- MODALS -->
   <!-- ============================================================= -->
 
-  <!-- 1. Mandatory Academic Authentication Gate Modal -->
-  <div class="modal-backdrop auth-gate-backdrop" id="authModal" style="display:none;">
-    <div class="modal-card auth-modal-card">
-      <div class="auth-gate-header">
-        <div class="brand auth-brand">
-          <div class="brand-icon">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-              <circle cx="12" cy="12" r="3"></circle>
-              <path d="M3 12h3M18 12h3M12 3v3M12 18v3"></path>
-              <path d="M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"></path>
-            </svg>
-          </div>
-          <div>
-            <h3 class="auth-title" data-i18n="auth_gate_title">Academic Authentication Gate</h3>
-            <p class="auth-subtitle" data-i18n="auth_gate_sub">Sign in to sync your level stars and practical lab assessments.</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- Tab Switcher (State 1: Login, State 2: Register) -->
-      <div class="auth-nav-tabs" id="authNavTabs">
-        <button class="auth-tab active" id="authTabLogin" type="button">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg>
-          <span data-i18n="tab_signin">Sign In</span>
-        </button>
-        <button class="auth-tab" id="authTabRegister" type="button">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
-          <span data-i18n="tab_register">Create Account</span>
-        </button>
-      </div>
-
-      <!-- Global Alert / Status Box -->
-      <div class="auth-alert" id="authAlertBox" style="display:none;"></div>
-
-      <!-- ============================================== -->
-      <!-- STATE 1: LOGIN -->
-      <!-- ============================================== -->
-      <div class="auth-state-pane active" id="authStateLogin">
-        <form id="loginForm" onsubmit="return false;" class="auth-form">
-          <div class="form-group">
-            <label for="loginEmail" data-i18n="label_email">Institutional Email:</label>
-            <input type="email" class="form-input" id="loginEmail" placeholder="name@university.edu" required autocomplete="username">
-          </div>
-          <div class="form-group">
-            <label for="loginPassword" data-i18n="label_password">Password:</label>
-            <input type="password" class="form-input" id="loginPassword" placeholder="••••••••" required autocomplete="current-password">
-          </div>
-          <div class="auth-actions">
-            <button class="btn btn-primary btn-block btn-lg" id="submitLoginBtn" type="submit">
-              <span class="btn-text" data-i18n="btn_signin_submit">Sign In & Launch Platform</span>
-              <div class="spinner-sm" style="display:none;"></div>
-            </button>
-          </div>
-          <div class="auth-switch-link">
-            <span data-i18n="auth_no_account">Don't have an account?</span>
-            <button type="button" class="btn-link" id="switchToRegisterLink" data-i18n="tab_register">Create Account</button>
-          </div>
-        </form>
-      </div>
-
-      <!-- ============================================== -->
-      <!-- STATE 2: CREATE ACCOUNT -->
-      <!-- ============================================== -->
-      <div class="auth-state-pane" id="authStateRegister" style="display:none;">
-        <form id="registerForm" onsubmit="return false;" class="auth-form">
-          <div class="form-group">
-            <label data-i18n="label_role">Your Academic Role:</label>
-            <div class="role-selector">
-              <label class="radio-label">
-                <input type="radio" name="registerRole" value="student" checked>
-                <span data-i18n="role_student">Student / طالب</span>
-              </label>
-              <label class="radio-label">
-                <input type="radio" name="registerRole" value="instructor">
-                <span data-i18n="role_instructor">Instructor / معيد</span>
-              </label>
-            </div>
-          </div>
-          <div class="form-group">
-            <label for="registerFullName" data-i18n="label_full_name">Full Name:</label>
-            <input type="text" class="form-input" id="registerFullName" placeholder="e.g. Omar Khalil / عمر خليل" required>
-          </div>
-          <div class="form-group">
-            <label for="registerEmail" data-i18n="label_email">Institutional Email:</label>
-            <input type="email" class="form-input" id="registerEmail" placeholder="name@university.edu" required autocomplete="email">
-          </div>
-          <div class="form-group">
-            <label for="registerPassword" data-i18n="label_password">Password (min 6 characters):</label>
-            <input type="password" class="form-input" id="registerPassword" placeholder="••••••••" required minlength="6" autocomplete="new-password">
-          </div>
-          <div class="auth-actions">
-            <button class="btn btn-primary btn-block btn-lg" id="submitRegisterBtn" type="submit">
-              <span class="btn-text" data-i18n="btn_register_submit">Create Account & Send OTP</span>
-              <div class="spinner-sm" style="display:none;"></div>
-            </button>
-          </div>
-          <div class="auth-switch-link">
-            <span data-i18n="auth_have_account">Already have an account?</span>
-            <button type="button" class="btn-link" id="switchToLoginLink" data-i18n="tab_signin">Sign In</button>
-          </div>
-        </form>
-      </div>
-
-      <!-- ============================================== -->
-      <!-- STATE 3: ENTER 6-DIGIT EMAIL OTP -->
-      <!-- ============================================== -->
-      <div class="auth-state-pane" id="authStateOtp" style="display:none;">
-        <div class="otp-verification-card">
-          <div class="otp-header-icon">
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="2" y="4" width="20" height="16" rx="2"></rect>
-              <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path>
-            </svg>
-          </div>
-          <h4 class="otp-title" data-i18n="otp_title">Enter 6-Digit Email OTP</h4>
-          <p class="otp-desc">
-            <span data-i18n="otp_desc">A 6-digit verification code was dispatched to:</span><br>
-            <strong id="otpTargetEmailText" class="otp-email-highlight">user@university.edu</strong>
-          </p>
-
-          <form id="otpForm" onsubmit="return false;" class="auth-form">
-            <div class="form-group text-center">
-              <input type="text" class="form-input otp-code-input" id="otpCodeInput" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" placeholder="••••••" autocomplete="one-time-code" required autofocus>
-            </div>
-
-            <!-- Countdown Timer -->
-            <div class="otp-countdown-row">
-              <div class="otp-timer-box" id="otpTimerBox">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-                <span data-i18n="otp_expires_in">Code expires in:</span>
-                <strong id="otpCountdownText">05:00</strong>
-              </div>
-              <button type="button" class="btn btn-secondary btn-sm" id="resendOtpBtn" disabled>
-                <span class="btn-text" data-i18n="btn_resend_otp">Resend Code</span>
-                <div class="spinner-sm" style="display:none;"></div>
-              </button>
-            </div>
-
-            <div class="auth-actions">
-              <button class="btn btn-primary btn-block btn-lg" id="submitOtpBtn" type="submit">
-                <span class="btn-text" data-i18n="btn_verify_otp">Verify OTP & Launch Platform</span>
-                <div class="spinner-sm" style="display:none;"></div>
-              </button>
-            </div>
-
-            <div class="auth-switch-link">
-              <button type="button" class="btn-link" id="otpBackToLoginBtn" data-i18n="btn_back_auth">← Back to Sign In</button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- 2. AI Tutor Step-by-Step Modal -->
+  <!-- 1. AI Tutor Step-by-Step Modal -->
   <div class="modal-backdrop" id="aiTutorModal" style="display:none;">
     <div class="modal-card modal-lg">
       <div class="modal-header">

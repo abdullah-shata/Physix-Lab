@@ -106,12 +106,9 @@ html, body {
   font-family: var(--font-arabic);
 }
 
-/* Grid Paper Background Pattern on Body */
+/* Clean Platform Background (Cleaned of distracting grid line clutter) */
 body {
-  background-image: 
-    linear-gradient(var(--grid-line-color) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-line-color) 1px, transparent 1px);
-  background-size: 20px 20px;
+  background-color: var(--bg-primary);
 }
 
 /* ==========================================================================
@@ -1548,40 +1545,47 @@ body {
 .text-subtle { color: var(--text-subtle); font-size: 0.82rem; }
 
 /* ==========================================================================
-   Mandatory Auth Gate Modal & OTP Verification Styles
+   Dedicated Authentication View (Clean Full-Screen Page, No Modal Blur)
    ========================================================================== */
-.auth-gate-backdrop {
-  z-index: 10000 !important;
-  background-color: rgba(10, 15, 30, 0.82) !important;
-  backdrop-filter: blur(8px) !important;
+.auth-page-view {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  background-color: var(--bg-primary);
+  background-image: radial-gradient(circle at 50% 15%, rgba(9, 105, 218, 0.07), transparent 60%);
+  position: relative;
+  box-sizing: border-box;
 }
 
-.auth-modal-card {
-  max-width: 480px;
+[data-theme="dark"] .auth-page-view {
+  background-image: radial-gradient(circle at 50% 15%, rgba(56, 189, 248, 0.08), transparent 60%);
+}
+
+.auth-page-card {
+  max-width: 460px;
   width: 100%;
   border-radius: var(--radius-lg);
   border: 1px solid var(--border-color);
   background: var(--bg-surface);
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-lg), 0 20px 40px -15px rgba(0, 0, 0, 0.12);
   overflow: hidden;
-  animation: modalScaleIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.25s ease;
 }
 
-@keyframes modalScaleIn {
-  from {
-    opacity: 0;
-    transform: scale(0.96) translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
-.auth-gate-header {
+.auth-page-header {
   padding: 24px 24px 18px 24px;
   border-bottom: 1px solid var(--border-color);
   background: var(--bg-surface-elevated);
+}
+
+.main-workspace-view {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .auth-brand {
@@ -1829,4 +1833,38 @@ body {
   animation: spin 0.8s linear infinite;
   display: inline-block;
   vertical-align: middle;
+}
+
+/* Forgot & Reset Password Styles */
+.forgot-pwd-box,
+.reset-pwd-box {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.auth-state-title {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--text-main);
+  margin-bottom: 2px;
+}
+
+.auth-state-sub {
+  font-size: 0.84rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+  margin-bottom: 12px;
+}
+
+.forgot-pwd-link {
+  color: var(--color-accent);
+  text-decoration: none;
+  font-weight: 500;
+  transition: opacity 0.2s;
+}
+
+.forgot-pwd-link:hover {
+  text-decoration: underline;
+  opacity: 0.85;
 }
