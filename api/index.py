@@ -302,26 +302,44 @@ def verify_password(password: str, stored_hash: str) -> bool:
     except Exception:
         return False
 
-def send_otp_email(to_email: str, otp: str, full_name: str = "Student") -> bool:
+def send_otp_email(to_email: str, otp: str, full_name: str = "Student", subject_prefix: str = "Email Verification") -> bool:
     smtp_email = os.getenv("SMTP_EMAIL", "").strip()
     smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
+    smtp_host = os.getenv("SMTP_HOST", "").strip()
+    smtp_port_str = os.getenv("SMTP_PORT", "").strip()
+    smtp_port = int(smtp_port_str) if smtp_port_str.isdigit() else 0
 
-    # Mandatory fallback: Also print [OTP] {email}: {otp} to server console
-    print(f"[OTP] {to_email}: {otp}")
+    # Mandatory fallback: Always print [OTP] {email}: {otp} to server console
+    print(f"[OTP] {to_email}: {otp} ({subject_prefix})")
 
     if not smtp_email or not smtp_password:
-        print(f"[Email] SMTP credentials not set; OTP logged to console.")
+        print(f"[Email] SMTP credentials not set; OTP logged to console: [OTP] {to_email}: {otp}")
         return True
+
+    # Auto-detect SMTP host and port if not explicitly set
+    if not smtp_host:
+        email_lower = smtp_email.lower()
+        if any(dom in email_lower for dom in ["@outlook.com", "@hotmail.com", "@live.com", "@office365.com", "@msn.com"]):
+            smtp_host = "smtp-mail.outlook.com"
+            smtp_port = smtp_port or 587
+        else:
+            smtp_host = "smtp.gmail.com"
+            smtp_port = smtp_port or 465
+
+    is_reset = "Password Reset" in subject_prefix or "Reset" in subject_prefix
+    action_title_en = "Password Reset Code" if is_reset else "Email Verification Code"
+    action_title_ar = "رمز إعادة تعيين كلمة المرور" if is_reset else "رمز التحقق من البريد"
+    action_desc_en = "use the 6-digit code below to reset your PhysiX Lab password:" if is_reset else "use the 6-digit code below to complete your academic authentication into PhysiX Lab:"
 
     try:
         msg = MIMEMultipart("alternative")
-        msg["Subject"] = f"PhysiX Lab - Email Verification OTP: {otp}"
+        msg["Subject"] = f"PhysiX Lab - {subject_prefix} OTP: {otp}"
         msg["From"] = f"PhysiX Lab <{smtp_email}>"
         msg["To"] = to_email
 
         text_content = (
             f"Hello {full_name},\n\n"
-            f"Your 6-digit PhysiX Lab verification code is: {otp}\n"
+            f"Your 6-digit PhysiX Lab code is: {otp}\n"
             f"This code is valid for 5 minutes.\n\n"
             f"If you did not request this, please disregard this email.\n"
             f"— PhysiX Lab Team"
@@ -332,7 +350,7 @@ def send_otp_email(to_email: str, otp: str, full_name: str = "Student") -> bool:
         <html>
         <head>
           <meta charset="utf-8">
-          <title>PhysiX Lab Verification</title>
+          <title>PhysiX Lab Code</title>
         </head>
         <body style="margin:0; padding:20px; font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color:#f1f5f9;">
           <div style="max-width:520px; margin:0 auto; background:#ffffff; border-radius:12px; overflow:hidden; border:1px solid #e2e8f0; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);">
@@ -341,9 +359,9 @@ def send_otp_email(to_email: str, otp: str, full_name: str = "Student") -> bool:
               <p style="margin:4px 0 0 0; font-size:14px; opacity:0.9;">مختبر الميكانيكا والهندسة التفاعلي</p>
             </div>
             <div style="padding:28px 24px; text-align:center;">
-              <h2 style="margin:0 0 12px 0; font-size:18px; color:#1e293b;">Email Verification Code / رمز التحقق</h2>
+              <h2 style="margin:0 0 12px 0; font-size:18px; color:#1e293b;">{action_title_en} / {action_title_ar}</h2>
               <p style="margin:0 0 20px 0; font-size:14px; color:#64748b; line-height:1.5;">
-                Hello <strong>{full_name}</strong>, use the 6-digit code below to complete your academic authentication into PhysiX Lab:
+                Hello <strong>{full_name}</strong>, {action_desc_en}
               </p>
               <div style="display:inline-block; padding:16px 32px; background:#f8fafc; border:2px dashed #0969da; border-radius:10px; margin-bottom:20px;">
                 <span style="font-family:'Courier New', monospace; font-size:36px; font-weight:800; letter-spacing:8px; color:#0969da;">{otp}</span>
@@ -367,77 +385,92 @@ def send_otp_email(to_email: str, otp: str, full_name: str = "Student") -> bool:
         msg.attach(MIMEText(html_content, "html", "utf-8"))
 
         context = ssl.create_default_context()
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context, timeout=10) as server:
-            server.login(smtp_email, smtp_password)
-            server.sendmail(smtp_email, to_email, msg.as_string())
+        if smtp_port == 465:
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, context=context, timeout=10) as server:
+                server.login(smtp_email, smtp_password)
+                server.sendmail(smtp_email, to_email, msg.as_string())
+        else:
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
+                server.ehlo()
+                server.starttls(context=context)
+                server.ehlo()
+                server.login(smtp_email, smtp_password)
+                server.sendmail(smtp_email, to_email, msg.as_string())
 
-        print(f"[Email] Successfully dispatched OTP email to {to_email}")
+        print(f"[Email] Successfully dispatched OTP email to {to_email} via {smtp_host}:{smtp_port}")
         return True
     except Exception as e:
-        print(f"[Email Error] Could not send OTP email to {to_email}: {e}")
+        print(f"[Email Error] Could not send OTP email to {to_email} via {smtp_host}:{smtp_port}: {e}")
         return False
 
 def init_db():
-    """Initializes local SQLite tables with mandatory user authentication and linked relations."""
+    """Initializes SQLite/Turso tables safely without dropping user accounts or records."""
     with get_db() as conn:
         cursor = conn.cursor()
         
         # 1. Users table
-        cursor.execute("PRAGMA table_info(users)")
-        existing_user_cols = {row["name"]: row for row in cursor.fetchall()}
-        
-        if not existing_user_cols or "password_hash" not in existing_user_cols:
-            cursor.execute("DROP TABLE IF EXISTS users")
-            cursor.execute("""
-                CREATE TABLE users (
-                    id TEXT PRIMARY KEY,
-                    full_name TEXT NOT NULL,
-                    email TEXT UNIQUE NOT NULL,
-                    password_hash TEXT NOT NULL,
-                    role TEXT NOT NULL DEFAULT 'student',
-                    is_verified INTEGER DEFAULT 0,
-                    otp_code TEXT,
-                    otp_expires_at TEXT,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                full_name TEXT NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'student',
+                is_verified INTEGER DEFAULT 0,
+                otp_code TEXT,
+                otp_expires_at TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        for col_def in [
+            ("full_name", "TEXT NOT NULL DEFAULT ''"),
+            ("role", "TEXT NOT NULL DEFAULT 'student'"),
+            ("is_verified", "INTEGER DEFAULT 0"),
+            ("otp_code", "TEXT"),
+            ("otp_expires_at", "TEXT"),
+            ("created_at", "TEXT DEFAULT CURRENT_TIMESTAMP")
+        ]:
+            try:
+                cursor.execute(f"ALTER TABLE users ADD COLUMN {col_def[0]} {col_def[1]}")
+            except Exception:
+                pass
 
         # Ensure seed accounts exist if users table is empty
         cursor.execute("SELECT COUNT(*) FROM users")
-        if cursor.fetchone()[0] == 0:
+        row = cursor.fetchone()
+        count = row[0] if row else 0
+        if count == 0:
             seed_pass = hash_password("password123")
             cursor.execute("""
-                INSERT INTO users (id, full_name, email, password_hash, role, is_verified, created_at)
+                INSERT OR IGNORE INTO users (id, full_name, email, password_hash, role, is_verified, created_at)
                 VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
             """, (str(uuid.uuid4()), "Dr. Sarah Nour", "sarah.nour@univ.edu", seed_pass, "instructor"))
 
             cursor.execute("""
-                INSERT INTO users (id, full_name, email, password_hash, role, is_verified, created_at)
+                INSERT OR IGNORE INTO users (id, full_name, email, password_hash, role, is_verified, created_at)
                 VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
             """, (str(uuid.uuid4()), "Omar Khalil / عمر خليل", "omar.khalil@univ.edu", seed_pass, "student"))
         
         # 2. Student Progress table
-        cursor.execute("PRAGMA table_info(student_progress)")
-        prog_cols = {row["name"] for row in cursor.fetchall()}
-        if not prog_cols:
-            cursor.execute("""
-                CREATE TABLE student_progress (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id TEXT,
-                    user_email TEXT NOT NULL,
-                    module_id TEXT NOT NULL,
-                    level_id INTEGER NOT NULL,
-                    stars INTEGER DEFAULT 0,
-                    best_score REAL DEFAULT 0.0,
-                    attempts INTEGER DEFAULT 1,
-                    completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(user_email, module_id, level_id)
-                )
-            """)
-        else:
-            if "user_id" not in prog_cols:
-                cursor.execute("ALTER TABLE student_progress ADD COLUMN user_id TEXT")
-        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS student_progress (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT,
+                user_email TEXT NOT NULL,
+                module_id TEXT NOT NULL,
+                level_id INTEGER NOT NULL,
+                stars INTEGER DEFAULT 0,
+                best_score REAL DEFAULT 0.0,
+                attempts INTEGER DEFAULT 1,
+                completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_email, module_id, level_id)
+            )
+        """)
+        try:
+            cursor.execute("ALTER TABLE student_progress ADD COLUMN user_id TEXT")
+        except Exception:
+            pass
+
         # 3. Lab Sheets (Instructor exams)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS lab_sheets (
@@ -447,42 +480,50 @@ def init_db():
                 topics TEXT NOT NULL,
                 num_questions INTEGER DEFAULT 4,
                 passing_score REAL DEFAULT 60.0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                custom_questions TEXT,
+                is_locked INTEGER DEFAULT 0,
+                active_model TEXT DEFAULT 'A'
+            )
+        """)
+        for col_name, col_type in [
+            ("custom_questions", "TEXT"),
+            ("is_locked", "INTEGER DEFAULT 0"),
+            ("active_model", "TEXT DEFAULT 'A'")
+        ]:
+            try:
+                cursor.execute(f"ALTER TABLE lab_sheets ADD COLUMN {col_name} {col_type}")
+            except Exception:
+                pass
+
+        # 4. Exam Submissions
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS exam_submissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT,
+                sheet_code TEXT NOT NULL,
+                student_email TEXT NOT NULL,
+                student_name TEXT NOT NULL,
+                score REAL NOT NULL,
+                passed INTEGER NOT NULL,
+                answers TEXT NOT NULL,
+                submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(sheet_code, student_email)
             )
         """)
         try:
-            cursor.execute("ALTER TABLE lab_sheets ADD COLUMN custom_questions TEXT")
+            cursor.execute("ALTER TABLE exam_submissions ADD COLUMN user_id TEXT")
         except Exception:
             pass
-        
-        # 4. Exam Submissions
-        cursor.execute("PRAGMA table_info(exam_submissions)")
-        sub_cols = {row["name"] for row in cursor.fetchall()}
-        if not sub_cols:
-            cursor.execute("""
-                CREATE TABLE exam_submissions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id TEXT,
-                    sheet_code TEXT NOT NULL,
-                    student_email TEXT NOT NULL,
-                    student_name TEXT NOT NULL,
-                    score REAL NOT NULL,
-                    passed INTEGER NOT NULL,
-                    answers TEXT NOT NULL,
-                    submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(sheet_code, student_email)
-                )
-            """)
-        else:
-            if "user_id" not in sub_cols:
-                cursor.execute("ALTER TABLE exam_submissions ADD COLUMN user_id TEXT")
 
         # Seed default starter lab sheet if empty
         cursor.execute("SELECT COUNT(*) FROM lab_sheets WHERE sheet_code = 'MECH-2026'")
-        if cursor.fetchone()[0] == 0:
+        row = cursor.fetchone()
+        sheet_count = row[0] if row else 0
+        if sheet_count == 0:
             cursor.execute("""
-                INSERT INTO lab_sheets (sheet_code, title, instructor_email, topics, num_questions, passing_score)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT OR IGNORE INTO lab_sheets (sheet_code, title, instructor_email, topics, num_questions, passing_score, is_locked, active_model)
+                VALUES (?, ?, ?, ?, ?, ?, 0, 'A')
             """, (
                 "MECH-2026",
                 "General Physics I - Mechanics Lab Practical",
@@ -525,6 +566,23 @@ class VerifyOtpRequest(BaseModel):
 
 class ResendOtpRequest(BaseModel):
     email: EmailStr
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    otp_code: str
+    new_password: str
+
+class ExamSettingsRequest(BaseModel):
+    instructor_email: Optional[EmailStr] = None
+    is_locked: Optional[bool] = None
+    active_model: Optional[str] = None
+    passing_score: Optional[float] = None
+    title: Optional[str] = None
+    topics: Optional[List[str]] = None
+    custom_questions: Optional[List[Dict[str, Any]]] = None
 
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -742,6 +800,89 @@ def resend_otp(req: ResendOtpRequest):
             "status": "otp_sent",
             "email": email,
             "message": f"A new 6-digit verification code has been sent to {email}."
+        }
+
+@app.post("/api/auth/forgot-password")
+def forgot_password(req: ForgotPasswordRequest):
+    email = req.email.lower().strip()
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE email = ?", (email,))
+        user_row = cursor.fetchone()
+
+        if not user_row:
+            raise HTTPException(
+                status_code=404,
+                detail="No account found with this email address. / لا يوجد حساب مسجل بهذا البريد الإلكتروني."
+            )
+
+        otp = f"{random.randint(100000, 999999)}"
+        expires_at = (datetime.utcnow() + timedelta(minutes=5)).isoformat()
+
+        cursor.execute("""
+            UPDATE users
+            SET otp_code = ?, otp_expires_at = ?
+            WHERE id = ?
+        """, (otp, expires_at, user_row["id"]))
+        conn.commit()
+
+        send_otp_email(email, otp, user_row["full_name"], subject_prefix="Password Reset")
+
+        return {
+            "status": "otp_sent",
+            "email": email,
+            "message": f"Password reset code dispatched to {email}. Valid for 5 minutes."
+        }
+
+@app.post("/api/auth/reset-password")
+def reset_password(req: ResetPasswordRequest):
+    email = req.email.lower().strip()
+    code = req.otp_code.strip()
+    new_password = req.new_password.strip()
+
+    if len(new_password) < 6:
+        raise HTTPException(
+            status_code=400,
+            detail="Password must be at least 6 characters / كلمة المرور يجب أن لا تقل عن 6 أحرف"
+        )
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE email = ?", (email,))
+        user_row = cursor.fetchone()
+
+        if not user_row:
+            raise HTTPException(status_code=404, detail="User account not found / المستخدم غير موجود")
+
+        if not user_row["otp_code"] or user_row["otp_code"] != code:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid verification code. Please check your email. / رمز التحقق غير صحيح، يرجى التحقق من بريدك."
+            )
+
+        if user_row["otp_expires_at"]:
+            try:
+                exp_dt = datetime.fromisoformat(user_row["otp_expires_at"])
+                if datetime.utcnow() > exp_dt:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Reset code has expired. Please request a new code. / انتهت صلاحية رمز التحقق، يرجى طلب رمز جديد."
+                    )
+            except (ValueError, TypeError):
+                pass
+
+        new_pwd_hash = hash_password(new_password)
+        cursor.execute("""
+            UPDATE users
+            SET password_hash = ?, otp_code = NULL, otp_expires_at = NULL, is_verified = 1
+            WHERE id = ?
+        """, (new_pwd_hash, user_row["id"]))
+        conn.commit()
+
+        return {
+            "status": "password_reset_success",
+            "message": "Password updated successfully. You can now sign in with your new password. / تم تحديث كلمة المرور بنجاح. يمكنك تسجيل الدخول الآن."
         }
 
 @app.post("/api/auth/login")
@@ -1697,6 +1838,96 @@ def export_sheet_csv(code: str, email: Optional[str] = None):
         }
     )
 
+@app.get("/api/instructor/sheets")
+def get_instructor_sheets(email: Optional[str] = None):
+    with get_db() as conn:
+        cursor = conn.cursor()
+        if email:
+            cursor.execute("SELECT * FROM lab_sheets WHERE LOWER(instructor_email) = LOWER(?) ORDER BY created_at DESC", (email.strip(),))
+        else:
+            cursor.execute("SELECT * FROM lab_sheets ORDER BY created_at DESC")
+        sheets = [dict(r) for r in cursor.fetchall()]
+
+        # Attach submission counts to each sheet
+        for s in sheets:
+            cursor.execute("SELECT COUNT(*) FROM exam_submissions WHERE sheet_code = ?", (s["sheet_code"],))
+            cnt_row = cursor.fetchone()
+            s["submissions_count"] = cnt_row[0] if cnt_row else 0
+            if "is_locked" not in s or s["is_locked"] is None:
+                s["is_locked"] = 0
+            if "active_model" not in s or not s["active_model"]:
+                s["active_model"] = "A"
+
+        return {"sheets": sheets}
+
+@app.get("/api/instructor/sheet/{code}/settings")
+def get_sheet_settings(code: str, email: Optional[str] = None):
+    code = code.upper().strip()
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM lab_sheets WHERE sheet_code = ?", (code,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Lab sheet not found")
+        sheet_dict = dict(row)
+        if email and sheet_dict.get("instructor_email", "").lower() != email.lower().strip():
+            raise HTTPException(status_code=403, detail="Access denied: You do not own this lab sheet.")
+        
+        if "is_locked" not in sheet_dict or sheet_dict["is_locked"] is None:
+            sheet_dict["is_locked"] = 0
+        if "active_model" not in sheet_dict or not sheet_dict["active_model"]:
+            sheet_dict["active_model"] = "A"
+        return {"sheet": sheet_dict}
+
+@app.post("/api/instructor/sheet/{code}/settings")
+def update_sheet_settings(code: str, req: ExamSettingsRequest):
+    code = code.upper().strip()
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM lab_sheets WHERE sheet_code = ?", (code,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Lab sheet not found")
+        sheet_dict = dict(row)
+        if req.instructor_email and sheet_dict.get("instructor_email", "").lower() != req.instructor_email.lower().strip():
+            raise HTTPException(status_code=403, detail="Access denied: You do not own this lab sheet.")
+
+        updates = []
+        params = []
+        if req.is_locked is not None:
+            updates.append("is_locked = ?")
+            params.append(1 if req.is_locked else 0)
+        if req.active_model is not None:
+            updates.append("active_model = ?")
+            params.append(req.active_model.strip().upper())
+        if req.passing_score is not None:
+            updates.append("passing_score = ?")
+            params.append(float(req.passing_score))
+        if req.title is not None:
+            updates.append("title = ?")
+            params.append(req.title.strip())
+        if req.topics is not None:
+            updates.append("topics = ?")
+            params.append(json.dumps(req.topics))
+        if req.custom_questions is not None:
+            updates.append("custom_questions = ?")
+            params.append(json.dumps(req.custom_questions))
+
+        if updates:
+            params.append(code)
+            sql = f"UPDATE lab_sheets SET {', '.join(updates)} WHERE sheet_code = ?"
+            cursor.execute(sql, tuple(params))
+            conn.commit()
+
+        cursor.execute("SELECT * FROM lab_sheets WHERE sheet_code = ?", (code,))
+        updated_row = cursor.fetchone()
+        res_sheet = dict(updated_row)
+        if "is_locked" not in res_sheet or res_sheet["is_locked"] is None:
+            res_sheet["is_locked"] = 0
+        if "active_model" not in res_sheet or not res_sheet["active_model"]:
+            res_sheet["active_model"] = "A"
+        return {"status": "updated", "sheet": res_sheet}
+
 # ---------------------------------------------------------
 # Anti-Cheat Student Exam Generator & Submissions
 # ---------------------------------------------------------
@@ -1712,6 +1943,17 @@ def get_exam_sheet_for_student(code: str, email: str):
         if not sheet_row:
             raise HTTPException(status_code=404, detail="Exam sheet not found")
 
+        sheet = dict(sheet_row)
+
+        # Check if exam is locked/closed by instructor
+        if sheet.get("is_locked") == 1:
+            return {
+                "sheet_code": code,
+                "title": sheet["title"],
+                "is_locked": True,
+                "message": "This exam sheet is currently locked by the instructor. / تم إغلاق ورقة الاختبار بواسطة المدرس."
+            }
+
         # Check if already submitted
         cursor.execute("SELECT * FROM exam_submissions WHERE sheet_code = ? AND student_email = ?", (code, student_email))
         existing_sub = cursor.fetchone()
@@ -1722,147 +1964,44 @@ def get_exam_sheet_for_student(code: str, email: str):
                 "submission": dict(existing_sub)
             }
 
-        sheet = dict(sheet_row)
-        raw_custom = dict(sheet).get("custom_questions")
+        active_model = sheet.get("active_model") or "A"
+
+        # Check custom questions
+        raw_custom = sheet.get("custom_questions")
         if raw_custom:
-            custom_list = json.loads(raw_custom)
-            sanitized_questions = []
-            for idx, q in enumerate(custom_list):
-                sanitized_questions.append({
-                    "id": q.get("id", f"cq_{idx+1}"),
-                    "topic": "custom",
-                    "q_type": q.get("q_type", "mcq"),
-                    "title": f"Question {idx+1}",
-                    "prompt": q.get("prompt", ""),
-                    "prompt_ar": q.get("prompt", ""),
-                    "options": q.get("options", []),
-                    "points": float(q.get("points", 1.0)),
-                    "image_data": q.get("image_data", ""),
-                    "inputs": {}
-                })
-            return {
-                "sheet_code": code,
-                "title": sheet["title"],
-                "passing_score": sheet["passing_score"],
-                "student_email": student_email,
-                "is_custom_form": True,
-                "questions": sanitized_questions
-            }
-
-        raw_custom = dict(sheet).get("custom_questions")
-        if raw_custom:
-            custom_list = json.loads(raw_custom)
-            earned_points = 0.0
-            total_points = 0.0
-            for idx, q in enumerate(custom_list):
-                q_id = q.get("id", f"cq_{idx+1}")
-                pts = float(q.get("points", 1.0))
-                total_points += pts
-                sub = req.answers.get(q_id)
-                if sub is None or str(sub).strip() == "":
-                    continue
-                q_type = q.get("q_type", "mcq")
-                if q_type == "mcq":
-                    if str(sub).strip() == str(q.get("correct_option", "")).strip():
-                        earned_points += pts
-                else:
-                    try:
-                        target_num = float(q.get("correct_numeric", 0))
-                        tol = float(q.get("tolerance", 0.5))
-                        if abs(float(sub) - target_num) <= tol:
-                            earned_points += pts
-                    except Exception:
-                        pass
-
-            score_pct = round((earned_points / total_points) * 100, 1) if total_points > 0 else 0.0
-            passed = 1 if score_pct >= sheet["passing_score"] else 0
-            cursor.execute(
-                "INSERT INTO exam_submissions (sheet_code, student_name, student_email, score, passed, answers_json, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (code, req.student_name, req.student_email, score_pct, passed, json.dumps(req.answers), datetime.utcnow().isoformat())
-            )
-            conn.commit()
-            return {
-                "status": "graded",
-                "score": score_pct,
-                "earned_points": round(earned_points, 2),
-                "total_points": round(total_points, 2),
-                "passing_score": sheet["passing_score"],
-                "passed": bool(passed),
-                "message": f"Scored {round(earned_points, 2)} / {round(total_points, 2)} Points ({score_pct}%)."
-            }
-
-        raw_custom = dict(sheet).get("custom_questions")
-        if raw_custom:
-            custom_list = json.loads(raw_custom)
-            sanitized_questions = []
-            for idx, q in enumerate(custom_list):
-                sanitized_questions.append({
-                    "id": q.get("id", f"cq_{idx+1}"),
-                    "topic": "custom",
-                    "q_type": q.get("q_type", "mcq"),
-                    "title": f"Question {idx+1}",
-                    "prompt": q.get("prompt", ""),
-                    "prompt_ar": q.get("prompt", ""),
-                    "options": q.get("options", []),
-                    "points": float(q.get("points", 1.0)),
-                    "image_data": q.get("image_data", ""),
-                    "inputs": {}
-                })
-            return {
-                "sheet_code": code,
-                "title": sheet["title"],
-                "passing_score": sheet["passing_score"],
-                "student_email": student_email,
-                "is_custom_form": True,
-                "questions": sanitized_questions
-            }
-
-        raw_custom = dict(sheet).get("custom_questions")
-        if raw_custom:
-            custom_list = json.loads(raw_custom)
-            earned_points = 0.0
-            total_points = 0.0
-            for idx, q in enumerate(custom_list):
-                q_id = q.get("id", f"cq_{idx+1}")
-                pts = float(q.get("points", 1.0))
-                total_points += pts
-                sub = req.answers.get(q_id)
-                if sub is None or str(sub).strip() == "":
-                    continue
-                q_type = q.get("q_type", "mcq")
-                if q_type == "mcq":
-                    if str(sub).strip() == str(q.get("correct_option", "")).strip():
-                        earned_points += pts
-                else:
-                    try:
-                        target_num = float(q.get("correct_numeric", 0))
-                        tol = float(q.get("tolerance", 0.5))
-                        if abs(float(sub) - target_num) <= tol:
-                            earned_points += pts
-                    except Exception:
-                        pass
-
-            score_pct = round((earned_points / total_points) * 100, 1) if total_points > 0 else 0.0
-            passed = 1 if score_pct >= sheet["passing_score"] else 0
-            cursor.execute(
-                "INSERT INTO exam_submissions (sheet_code, student_name, student_email, score, passed, answers_json, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (code, req.student_name, req.student_email, score_pct, passed, json.dumps(req.answers), datetime.utcnow().isoformat())
-            )
-            conn.commit()
-            return {
-                "status": "graded",
-                "score": score_pct,
-                "earned_points": round(earned_points, 2),
-                "total_points": round(total_points, 2),
-                "passing_score": sheet["passing_score"],
-                "passed": bool(passed),
-                "message": f"Scored {round(earned_points, 2)} / {round(total_points, 2)} Points ({score_pct}%)."
-            }
+            try:
+                custom_list = json.loads(raw_custom)
+                if isinstance(custom_list, list) and len(custom_list) > 0:
+                    sanitized_questions = []
+                    for idx, q in enumerate(custom_list):
+                        sanitized_questions.append({
+                            "id": q.get("id", f"cq_{idx+1}"),
+                            "topic": "custom",
+                            "q_type": q.get("q_type", "mcq"),
+                            "title": q.get("title") or f"Question {idx+1}",
+                            "prompt": q.get("prompt", ""),
+                            "prompt_ar": q.get("prompt_ar") or q.get("prompt", ""),
+                            "options": q.get("options", []),
+                            "points": float(q.get("points", 1.0)),
+                            "image_data": q.get("image_data", ""),
+                            "inputs": {}
+                        })
+                    return {
+                        "sheet_code": code,
+                        "title": sheet["title"],
+                        "passing_score": sheet["passing_score"],
+                        "student_email": student_email,
+                        "is_custom_form": True,
+                        "active_model": active_model,
+                        "questions": sanitized_questions
+                    }
+            except Exception:
+                pass
 
         topics = json.loads(sheet["topics"]) if isinstance(sheet["topics"], str) else sheet["topics"]
 
-        # Anti-Cheat Deterministic Randomization based on (student_email + code)
-        seed_val = int(hashlib.md5(f"{student_email}_{code}".encode()).hexdigest(), 16) % 10000000
+        # Anti-Cheat Deterministic Randomization based on (student_email + code + active_model)
+        seed_val = int(hashlib.md5(f"{student_email}_{code}_{active_model}".encode()).hexdigest(), 16) % 10000000
         rng = random.Random(seed_val)
 
         questions = []
@@ -1872,34 +2011,30 @@ def get_exam_sheet_for_student(code: str, email: str):
                 mass = rng.choice([2.0, 4.0, 5.0, 8.0, 10.0])
                 dist = rng.choice([30.0, 50.0, 80.0, 100.0])
                 req_t = rng.choice([4.0, 5.0, 6.0])
-                # Target Force: s = 0.5 * (F/m) * t^2 => F = 2 * m * s / t^2
                 correct_F = round((2 * mass * dist) / (req_t ** 2), 1)
                 questions.append({
                     "id": q_id,
                     "topic": "newton",
-                    "title": "Newton's 2nd Law Experiment",
+                    "title": f"Newton's 2nd Law Experiment [Set {active_model}]",
                     "prompt": f"Given a box with mass m = {mass} kg and track distance D = {dist} m, what applied force F (in Newtons) is required to stop inside the target zone at exactly t = {req_t} s?",
                     "prompt_ar": f"لصندوق كتلته m = {mass} كجم ومسافة D = {dist} م، ما هي القوة المطلوبة F بالنيوتن ليصل إلى نافذة الهدف في زمن قدره t = {req_t} ثانية؟",
                     "target_param": "F",
-                    "correct_answer": correct_F,
                     "tolerance": 2.0,
                     "inputs": {"m": mass, "D": dist, "target_time": req_t}
                 })
             elif topic == "projectiles":
                 target_dist = rng.choice([40.0, 60.0, 80.0, 100.0])
                 angle = rng.choice([30.0, 45.0, 60.0])
-                # R = v0^2 * sin(2*th) / g => v0 = sqrt(R * g / sin(2*th))
                 th_rad = math.radians(angle)
                 sin_2th = math.sin(2 * th_rad)
                 correct_v0 = round(math.sqrt((target_dist * 9.81) / sin_2th), 1)
                 questions.append({
                     "id": q_id,
                     "topic": "projectiles",
-                    "title": "Artillery Projectile Trajectory",
+                    "title": f"Artillery Projectile Trajectory [Set {active_model}]",
                     "prompt": f"A target sensor is positioned at ground distance R = {target_dist} m. If the launch angle is set to θ = {angle}°, determine the required initial launch velocity v₀ (in m/s).",
                     "prompt_ar": f"حساس الهدف يقع على مسافة أرضية R = {target_dist} م. إذا تم ضبط زاوية الإطلاق عند θ = {angle}°، احسب السرعة الابتدائية v₀ المطلوبة بالمتر/ثانية.",
                     "target_param": "v0",
-                    "correct_answer": correct_v0,
                     "tolerance": 1.5,
                     "inputs": {"target_distance": target_dist, "angle": angle}
                 })
@@ -1916,41 +2051,35 @@ def get_exam_sheet_for_student(code: str, email: str):
                 questions.append({
                     "id": q_id,
                     "topic": "inclined_plane",
-                    "title": "Inclined Plane & Friction Dynamics",
+                    "title": f"Inclined Plane & Friction Dynamics [Set {active_model}]",
                     "prompt": f"A block of mass m = {m} kg rests on a ramp inclined at θ = {theta}°. Static friction μ_s = {mu_s} and kinetic friction μ_k = {mu_k}. Calculate the net acceleration a (in m/s²). If stationary, enter 0.",
                     "prompt_ar": f"جسم كتلته m = {m} كجم موضوع على سطح مائل بزاوية θ = {theta}°. معامل الاحتكاك السكوني μ_s = {mu_s} والحركي μ_k = {mu_k}. احسب التسارع الصافي a (م/ث²). إذا كان ساكناً اكتب 0.",
                     "target_param": "a",
-                    "correct_answer": correct_a,
                     "tolerance": 0.5,
                     "inputs": {"m": m, "theta": theta, "mu_s": mu_s, "mu_k": mu_k}
                 })
             elif topic == "vectors":
                 F1 = rng.choice([10.0, 15.0, 20.0])
                 F2 = rng.choice([12.0, 18.0, 25.0])
-                # perpendicular: R = sqrt(F1^2 + F2^2)
-                correct_R = round(math.sqrt(F1 ** 2 + F2 ** 2), 1)
                 questions.append({
                     "id": q_id,
                     "topic": "vectors",
-                    "title": "Orthogonal Vector Addition",
+                    "title": f"Orthogonal Vector Addition [Set {active_model}]",
                     "prompt": f"Two perpendicular forces F₁ = {F1} N along the X-axis and F₂ = {F2} N along the Y-axis act on a single particle. Compute the magnitude of the resultant force |R| (in N).",
                     "prompt_ar": f"قوتان متعامدتان F₁ = {F1} N على محور السينات و F₂ = {F2} N على محور الصادات تؤثران على جسيم. احسب مقدار القوة المحصلة |R| بالنيوتن.",
                     "target_param": "R",
-                    "correct_answer": correct_R,
                     "tolerance": 1.0,
                     "inputs": {"F1": F1, "F2": F2}
                 })
             elif topic == "equilibrium":
                 F1 = rng.choice([20.0, 25.0, 30.0, 40.0])
-                correct_F3 = round(F1, 1)
                 questions.append({
                     "id": q_id,
                     "topic": "equilibrium",
-                    "title": "3-Force Symmetric Equilibrium",
+                    "title": f"3-Force Symmetric Equilibrium [Set {active_model}]",
                     "prompt": f"Two equal forces F₁ = {F1} N at 30° and F₂ = {F1} N at 150° act on a particle. What counter-force magnitude F₃ (in N) directed at 270° achieves static equilibrium (ΣF = 0)?",
                     "prompt_ar": f"قوتان متساويتان F₁ = {F1} N بزاوية 30° و F₂ = {F1} N بزاوية 150° تؤثران على جسيم. ما مقدار قوة الموازنة F₃ (بالنيوتن) عند زاوية 270° لتحقيق الاتزان (ΣF = 0)؟",
                     "target_param": "F3",
-                    "correct_answer": correct_F3,
                     "tolerance": 1.0,
                     "inputs": {"F1": F1, "F2": F1}
                 })
@@ -1958,15 +2087,13 @@ def get_exam_sheet_for_student(code: str, email: str):
                 m1 = rng.choice([2.0, 4.0])
                 v1 = rng.choice([4.0, 6.0, 8.0])
                 m2 = rng.choice([2.0, 4.0])
-                correct_v2 = round((2 * m1 * v1) / (m1 + m2), 2)
                 questions.append({
                     "id": q_id,
                     "topic": "momentum",
-                    "title": "Elastic Collision Velocity",
+                    "title": f"Elastic Collision Velocity [Set {active_model}]",
                     "prompt": f"Cart 1 (m₁ = {m1} kg) moving at v₁ = {v1} m/s collides elastically (e = 1.0) with stationary Cart 2 (m₂ = {m2} kg). Calculate Cart 2's post-collision speed v₂' (in m/s).",
                     "prompt_ar": f"تصطدم عربة (m₁ = {m1} كجم) بسرعة v₁ = {v1} م/ث تصادماً مرناً (e = 1.0) بعربة ساكنة (m₂ = {m2} كجم). احسب سرعة العربة الثانية بعد التصادم v₂' (م/ث).",
                     "target_param": "v2",
-                    "correct_answer": correct_v2,
                     "tolerance": 0.5,
                     "inputs": {"m1": m1, "v1": v1, "m2": m2}
                 })
@@ -1975,6 +2102,7 @@ def get_exam_sheet_for_student(code: str, email: str):
             "sheet_code": code,
             "title": sheet["title"],
             "passing_score": sheet["passing_score"],
+            "active_model": active_model,
             "questions": questions,
             "anti_cheat_student_seed": seed_val
         }
@@ -1990,17 +2118,91 @@ def submit_exam_answers(req: SubmitExamRequest):
         cursor.execute("SELECT * FROM lab_sheets WHERE sheet_code = ?", (code,))
         sheet = cursor.fetchone()
         if not sheet:
-            raise HTTPException(status_code=404, detail="Sheet not found")
+            raise HTTPException(status_code=404, detail="Exam sheet not found / ورقة الاختبار غير موجودة")
+
+        sheet_dict = dict(sheet)
+        if sheet_dict.get("is_locked") == 1:
+            raise HTTPException(
+                status_code=400,
+                detail="This exam is currently locked by the instructor and cannot accept new submissions. / هذا الاختبار مغلق حالياً بواسطة المدرس."
+            )
 
         # Check existing submission
         cursor.execute("SELECT id FROM exam_submissions WHERE sheet_code = ? AND student_email = ?", (code, student_email))
         if cursor.fetchone():
-            raise HTTPException(status_code=400, detail="Exam has already been submitted and locked for this email.")
+            raise HTTPException(
+                status_code=400,
+                detail="Exam has already been submitted and locked for this email. / تم تسليم هذا الاختبار مسبقاً لهذا الحساب."
+            )
 
-        # Re-derive questions with student seed to auto-grade
-        seed_val = int(hashlib.md5(f"{student_email}_{code}".encode()).hexdigest(), 16) % 10000000
+        active_model = sheet_dict.get("active_model") or "A"
+        raw_custom = sheet_dict.get("custom_questions")
+
+        # 1. Custom Questions Evaluation
+        if raw_custom:
+            try:
+                custom_list = json.loads(raw_custom)
+                if isinstance(custom_list, list) and len(custom_list) > 0:
+                    earned_points = 0.0
+                    total_points = 0.0
+                    question_results = {}
+
+                    for idx, q in enumerate(custom_list):
+                        q_id = q.get("id", f"cq_{idx+1}")
+                        pts = float(q.get("points", 1.0))
+                        total_points += pts
+                        sub = req.answers.get(q_id)
+                        is_correct = False
+
+                        if sub is not None and str(sub).strip() != "":
+                            q_type = q.get("q_type", "mcq")
+                            if q_type == "mcq":
+                                if str(sub).strip() == str(q.get("correct_option", "")).strip():
+                                    is_correct = True
+                                    earned_points += pts
+                            else:
+                                try:
+                                    target_num = float(q.get("correct_numeric", 0))
+                                    tol = float(q.get("tolerance", 0.5))
+                                    if abs(float(sub) - target_num) <= tol:
+                                        is_correct = True
+                                        earned_points += pts
+                                except Exception:
+                                    pass
+
+                        question_results[q_id] = is_correct
+
+                    score_pct = round((earned_points / total_points) * 100.0, 1) if total_points > 0 else 0.0
+                    passed = 1 if score_pct >= sheet_dict["passing_score"] else 0
+
+                    user_id = None
+                    cursor.execute("SELECT id FROM users WHERE email = ?", (student_email,))
+                    u_row = cursor.fetchone()
+                    if u_row:
+                        user_id = u_row["id"]
+
+                    cursor.execute("""
+                        INSERT INTO exam_submissions (user_id, sheet_code, student_email, student_name, score, passed, answers)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (user_id, code, student_email, student_name, score_pct, passed, json.dumps(question_results)))
+                    conn.commit()
+
+                    return {
+                        "status": "submitted",
+                        "score": score_pct,
+                        "earned_points": round(earned_points, 2),
+                        "total_points": round(total_points, 2),
+                        "passed": bool(passed),
+                        "passing_score": sheet_dict["passing_score"],
+                        "message": f"Scored {score_pct}% ({round(earned_points, 1)} / {round(total_points, 1)} points)."
+                    }
+            except Exception as e:
+                print(f"[Exam Eval Warning] Error parsing custom questions: {e}")
+
+        # 2. Standard Anti-Cheat Randomized Topics Evaluation
+        seed_val = int(hashlib.md5(f"{student_email}_{code}_{active_model}".encode()).hexdigest(), 16) % 10000000
         rng = random.Random(seed_val)
-        topics = json.loads(sheet["topics"]) if isinstance(sheet["topics"], str) else sheet["topics"]
+        topics = json.loads(sheet_dict["topics"]) if isinstance(sheet_dict["topics"], str) else sheet_dict["topics"]
 
         total_q = len(topics)
         correct_count = 0
@@ -2091,7 +2293,7 @@ def submit_exam_answers(req: SubmitExamRequest):
             topic_results[topic] = is_correct
 
         score_pct = round((correct_count / total_q) * 100.0, 1) if total_q > 0 else 100.0
-        passed = 1 if score_pct >= sheet["passing_score"] else 0
+        passed = 1 if score_pct >= sheet_dict["passing_score"] else 0
 
         # Link user_id from users table
         user_id = None
@@ -2110,9 +2312,11 @@ def submit_exam_answers(req: SubmitExamRequest):
             "status": "submitted",
             "score": score_pct,
             "passed": bool(passed),
+            "passing_score": sheet_dict["passing_score"],
             "correct_answers": correct_count,
             "total_questions": total_q,
-            "topic_results": topic_results
+            "topic_results": topic_results,
+            "message": f"Successfully submitted. Final score: {score_pct}% ({'PASSED' if passed else 'NEEDS RETAKE'})."
         }
 
 # ---------------------------------------------------------
