@@ -8,6 +8,15 @@ function typesetMath(el) {
   requestAnimationFrame(() => setTimeout(run, 30));
 }
 
+async function apiFetch(url, options = {}) {
+  const token = localStorage.getItem("physix_token");
+  options.headers = options.headers || {};
+  if (token && !options.headers["Authorization"]) {
+    options.headers["Authorization"] = Bearer ;
+  }
+  return fetch(url, options);
+}
+
 /**
  * PhysiX Lab - Interactive Mechanics & EdTech SaaS
  * Production-ready simulation engine, smart equation solver, AI tutor,
@@ -132,7 +141,16 @@ const I18N = {
     label_sheet_title: "Sheet Title:",
     label_passing_score: "Passing Threshold (%):",
     label_select_topics: "Included Physics Topics:",
-    btn_create_sheet_submit: "Deploy Lab Sheet"
+    btn_create_sheet_submit: "Deploy Lab Sheet",
+    btn_step: "Step",
+    tool_calc: "Calculator",
+    calc_title: "Physics Scratchpad",
+    lab_hint_title: "Analytical Insight",
+    exam_student_identity: "Active Authenticated Identity:",
+    btn_review_exam: "Review Questions & Answers",
+    label_allow_review: "Allow students to review question solutions after submission",
+    label_instructor_code: "Instructor Access / Invite Code:",
+    toast_invalid_image: "No usable physics parameters or numbers found."
   },
   ar: {
     brand_name: "PhysiX Lab",
@@ -248,7 +266,16 @@ const I18N = {
     label_sheet_title: "عنوان ورقة المعمل:",
     label_passing_score: "درجة النجاح الدنيا (%):",
     label_select_topics: "المواضيع الفيزيائية المضمنة:",
-    btn_create_sheet_submit: "نشر ورقة المعمل"
+    btn_create_sheet_submit: "نشر ورقة المعمل",
+    btn_step: "خطوة",
+    tool_calc: "آلة حاسبة",
+    calc_title: "المفكرة والحاسبة الفيزيائية",
+    lab_hint_title: "تحليل وإرشاد رياضي",
+    exam_student_identity: "الهوية الأكاديمية النشطة:",
+    btn_review_exam: "مراجعة الأسئلة والحلول",
+    label_allow_review: "السماح للطلاب بمراجعة حلول ونماذج الأسئلة بعد التسليم",
+    label_instructor_code: "كود دعوة / اعتماد المعيد:",
+    toast_invalid_image: "لم يتم العثور على أرقام أو معطيات فيزيائية صالحة في الصورة."
   }
 };
 
@@ -487,6 +514,8 @@ class PhysicsSimulationEngine {
     this.telCtx = this.telCanvas.getContext("2d");
     this.animId = null;
     this.lastTime = 0;
+    this.previousTrajectories = [];
+    this.isAiming = false;
   }
 
   init() {
@@ -496,6 +525,61 @@ class PhysicsSimulationEngine {
       this.render();
       this.renderTelemetry();
     });
+
+    // Interactive Click/Drag Aiming for Projectile Motion
+    const handlePointerAim = (clientX, clientY) => {
+      if (AppState.isRunning || AppState.activeModule !== "projectiles") return;
+      const rect = this.canvas.getBoundingClientRect();
+      const mouseX = (clientX - rect.left) * (this.canvas.width / rect.width);
+      const mouseY = (clientY - rect.top) * (this.canvas.height / rect.height);
+      const cannonX = 80;
+      const cannonY = 340;
+      const dx = mouseX - cannonX;
+      const dy = cannonY - mouseY;
+      if (dx <= 0 || dy <= 0) return;
+      const angle = Math.min(85, Math.max(10, Math.round(Math.atan2(dy, dx) * 180 / Math.PI)));
+      const speed = Math.min(60, Math.max(8, Math.round(Math.hypot(dx, dy) / 6)));
+      AppState.params.projectiles.theta = angle;
+      AppState.params.projectiles.v0 = speed;
+
+      const angleSlider = document.getElementById("param-theta");
+      const angleVal = document.getElementById("val-theta");
+      if (angleSlider) angleSlider.value = angle;
+      if (angleVal) angleVal.textContent = `${angle}°`;
+
+      const speedSlider = document.getElementById("param-v0");
+      const speedVal = document.getElementById("val-v0");
+      if (speedSlider) speedSlider.value = speed;
+      if (speedVal) speedVal.textContent = `${speed} m/s`;
+
+      updateSimHint();
+      this.render();
+    };
+
+    this.canvas.addEventListener("mousedown", (e) => {
+      if (AppState.activeModule === "projectiles" && !AppState.isRunning) {
+        this.isAiming = true;
+        handlePointerAim(e.clientX, e.clientY);
+      }
+    });
+    window.addEventListener("mousemove", (e) => {
+      if (this.isAiming) handlePointerAim(e.clientX, e.clientY);
+    });
+    window.addEventListener("mouseup", () => { this.isAiming = false; });
+
+    this.canvas.addEventListener("touchstart", (e) => {
+      if (AppState.activeModule === "projectiles" && !AppState.isRunning && e.touches.length > 0) {
+        this.isAiming = true;
+        handlePointerAim(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    }, { passive: true });
+    window.addEventListener("touchmove", (e) => {
+      if (this.isAiming && e.touches.length > 0) {
+        handlePointerAim(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    }, { passive: true });
+    window.addEventListener("touchend", () => { this.isAiming = false; });
+
     this.reset();
   }
 
@@ -555,6 +639,8 @@ class PhysicsSimulationEngine {
     }
 
     this.updateHUD(0, 0, 0, 0, 0);
+    updateMissionStatusBadge("ready");
+    updateSimHint();
     this.render();
     this.renderTelemetry();
   }
@@ -562,14 +648,32 @@ class PhysicsSimulationEngine {
   start() {
     if (AppState.isRunning && !AppState.isPaused) return;
     sfx.playClick();
+    if (AppState.sim.history && AppState.sim.history.length > 5) {
+      this.previousTrajectories.push({
+        mod: AppState.activeModule,
+        points: AppState.sim.history.slice(0, 100).map(pt => ({ ...pt }))
+      });
+      if (this.previousTrajectories.length > 3) this.previousTrajectories.shift();
+    }
     AppState.isRunning = true;
     AppState.isPaused = false;
+    updateMissionStatusBadge("running");
     this.lastTime = performance.now();
     this.loop();
   }
 
   pause() {
     AppState.isPaused = true;
+  }
+
+  step() {
+    if (AppState.isRunning && !AppState.isPaused) {
+      this.pause();
+    }
+    AppState.isPaused = true;
+    this.tick(0.05);
+    this.render();
+    this.renderTelemetry();
   }
 
   loop(currentTime = performance.now()) {
@@ -608,9 +712,15 @@ class PhysicsSimulationEngine {
           AppState.sim.achievedTarget = true;
           sfx.playSuccess();
           this.awardStars(mod, AppState.activeLevel, 3, 100);
+          updateMissionStatusBadge("hit");
+          saveSimulationSnapshot(true);
         }
       } else if (AppState.sim.x > targetX + targetW + 60 || AppState.sim.time > 12) {
         AppState.isRunning = false;
+        if (!AppState.sim.achievedTarget) {
+          updateMissionStatusBadge("missed");
+          saveSimulationSnapshot(false);
+        }
       }
       this.updateHUD(AppState.sim.time, AppState.sim.vx, a, distTraveled, 0.5 * p.m * (AppState.sim.vx ** 2));
 
@@ -629,24 +739,29 @@ class PhysicsSimulationEngine {
       AppState.sim.y -= AppState.sim.vy * dt * 12; // subtract because canvas Y increases downward
 
       const groundDist = (AppState.sim.x - 80) / 12;
+      const currentH = Math.max(0, (340 - AppState.sim.y) / 12);
       const currentSpeed = Math.sqrt(AppState.sim.vx ** 2 + AppState.sim.vy ** 2);
-      AppState.sim.history.push({ t: AppState.sim.time, v: currentSpeed, s: groundDist });
+      AppState.sim.history.push({ t: AppState.sim.time, v: currentSpeed, s: groundDist, h: currentH });
 
       // Ground collision detection (canvas groundY = 340)
       if (AppState.sim.y >= 340) {
         AppState.sim.y = 340;
         AppState.isRunning = false;
-        // Update targetZone with current params
         const R = p.targetDistance;
         AppState.sim.targetZone = { x: 80 + R * 12, width: 60, y: 330, height: 20 };
         const tz = AppState.sim.targetZone;
         if (AppState.sim.x >= tz.x - 20 && AppState.sim.x <= tz.x + tz.width + 20) {
+          AppState.sim.achievedTarget = true;
           sfx.playSuccess();
           const dist_err = Math.abs(AppState.sim.x - (tz.x + tz.width / 2));
           const stars = dist_err < 15 ? 3 : dist_err < 35 ? 2 : 1;
           this.awardStars(mod, AppState.activeLevel, stars, Math.round((1 - dist_err / 60) * 100));
+          updateMissionStatusBadge("hit");
+          saveSimulationSnapshot(true);
         } else {
           sfx.playThud();
+          updateMissionStatusBadge("missed");
+          saveSimulationSnapshot(false);
         }
       }
       this.updateHUD(AppState.sim.time, currentSpeed, g, groundDist, 0.5 * p.v0 * (currentSpeed ** 2));
@@ -1192,6 +1307,42 @@ class PhysicsSimulationEngine {
     ctx.font = "bold 11px Inter, Cairo";
     ctx.fillText("TARGET PAD", tz.x + 4, tz.y - 6);
 
+    // Previous multi-trajectory comparison trails
+    if (this.previousTrajectories && this.previousTrajectories.length > 0) {
+      this.previousTrajectories.forEach((traj, idx) => {
+        if (traj.mod === "projectiles" && traj.points && traj.points.length > 1) {
+          ctx.beginPath();
+          ctx.strokeStyle = isDark ? 
+gba(148, 163, 184, ) : 
+gba(100, 116, 139, );
+          ctx.lineWidth = 1.2;
+          ctx.setLineDash([3, 4]);
+          traj.points.forEach((pt, pIdx) => {
+            const px = startX + pt.s * 12;
+            const py = groundY - (pt.h || 0) * 12;
+            if (pIdx === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          });
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      });
+    }
+
+    // Active live launch trajectory trail
+    if (AppState.sim.history && AppState.sim.history.length > 1) {
+      ctx.beginPath();
+      ctx.strokeStyle = "#cf222e";
+      ctx.lineWidth = 2.2;
+      AppState.sim.history.forEach((pt, pIdx) => {
+        const px = startX + pt.s * 12;
+        const py = groundY - (pt.h || 0) * 12;
+        if (pIdx === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+    }
+
     // Theoretical Parabolic trajectory trail (dotted)
     const rad = (p.theta * Math.PI) / 180;
     const vx0 = p.v0 * Math.cos(rad);
@@ -1225,6 +1376,22 @@ class PhysicsSimulationEngine {
     ctx.arc(startX, groundY, 12, 0, Math.PI * 2);
     ctx.fillStyle = "#64748b";
     ctx.fill();
+
+    // Aiming guide vector when not running
+    if (!AppState.isRunning && (this.isAiming || AppState.sim.time === 0)) {
+      ctx.beginPath();
+      ctx.strokeStyle = isDark ? "rgba(56, 189, 248, 0.6)" : "rgba(9, 105, 218, 0.6)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+      const aimLen = Math.min(120, p.v0 * 2.5);
+      const aimX = startX + aimLen * Math.cos(rad);
+      const aimY = groundY - aimLen * Math.sin(rad);
+      ctx.moveTo(startX, groundY);
+      ctx.lineTo(aimX, aimY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      this.drawArrowhead(ctx, aimX - 6 * Math.cos(rad), aimY + 6 * Math.sin(rad), aimX, aimY, isDark ? "#38bdf8" : "#0969da", 7);
+    }
 
     // Projectile ball
     if (AppState.isRunning || AppState.sim.time > 0) {
@@ -1681,10 +1848,195 @@ function renderModuleControls(mod) {
   });
 }
 
+
+// ----------------------------------------------------------------------------
+// Practical Lab Enhancements: Dynamic Hints, Mission Status, Calculator
+// ----------------------------------------------------------------------------
+function updateMissionStatusBadge(status) {
+  const badge = document.getElementById("missionStatusBadge");
+  if (!badge) return;
+  const isAr = (AppState.lang === "ar");
+
+  if (status === "running") {
+    badge.textContent = isAr ? "الهدف: جاري المحاكاة..." : "Target: Running...";
+    badge.className = "badge badge-primary";
+  } else if (status === "hit") {
+    badge.textContent = isAr ? "الهدف: تم بنجاح ✓" : "Target: Hit ✓";
+    badge.className = "badge badge-success";
+  } else if (status === "missed") {
+    badge.textContent = isAr ? "الهدف: لم يتحقق ✗" : "Target: Missed ✗";
+    badge.className = "badge badge-danger";
+  } else {
+    badge.textContent = isAr ? "الهدف: جاهز" : "Target: Ready";
+    badge.className = "badge badge-outline";
+  }
+}
+
+function updateSimHint() {
+  const hintEl = document.getElementById("simHintBody");
+  if (!hintEl) return;
+  const mod = AppState.activeModule;
+  const isAr = (AppState.lang === "ar");
+
+  if (mod === "newton") {
+    const p = AppState.params.newton;
+    const reqF = ((2 * p.m * p.D) / (5.0 ** 2)).toFixed(1);
+    hintEl.innerHTML = isAr
+      ? `للوصول إلى مسافة $D = ${p.D}\\text{ m}$ في زمن $t = 5\\text{ s}$ لكتلة $m = ${p.m}\\text{ kg}$، القوة المطلوبة $F = \\frac{2mD}{t^2} \\approx ${reqF}\\text{ N}$.`
+      : `To reach distance $D = ${p.D}\\text{ m}$ in $t = 5\\text{ s}$ for mass $m = ${p.m}\\text{ kg}$, required force is $F = \\frac{2mD}{t^2} \\approx ${reqF}\\text{ N}$.`;
+  } else if (mod === "projectiles") {
+    const p = AppState.params.projectiles;
+    const rad = (p.theta * Math.PI) / 180;
+    const R_theor = ((p.v0 ** 2) * Math.sin(2 * rad) / 9.81).toFixed(1);
+    const H_max = ((p.v0 * Math.sin(rad)) ** 2 / (2 * 9.81)).toFixed(1);
+    hintEl.innerHTML = isAr
+      ? `بالزاوية $\\theta = ${p.theta}^\\circ$ وسرعة $v_0 = ${p.v0}\\text{ m/s}$: المدى النظري $R = \\frac{v_0^2 \\sin 2\\theta}{g} \\approx ${R_theor}\\text{ m}$، وأقصى ارتفاع $H = ${H_max}\\text{ m}$. الهدف عند ${p.targetDistance}\\text{ m}.`
+      : `At launch angle $\\theta = ${p.theta}^\\circ$ and $v_0 = ${p.v0}\\text{ m/s}$: Expected Range $R = \\frac{v_0^2 \\sin 2\\theta}{g} \\approx ${R_theor}\\text{ m}$, Peak $H = ${H_max}\\text{ m}$. Target is at ${p.targetDistance}\\text{ m}.`;
+  } else if (mod === "inclined_plane") {
+    const p = AppState.params.inclined_plane;
+    const critAngle = (Math.atan(p.mu_s) * 180 / Math.PI).toFixed(1);
+    hintEl.innerHTML = isAr
+      ? `شرط بدء الانزلاق: $\\tan\\theta > \\mu_s$ (${p.mu_s}) $\\implies \\theta > ${critAngle}^\\circ$. الزاوية الحالية: ${p.theta}^\\circ.`
+      : `Sliding threshold: $\\tan\\theta > \\mu_s$ (${p.mu_s}) $\\implies \\theta > ${critAngle}^\\circ$. Current angle is ${p.theta}^\\circ.`;
+  } else if (mod === "momentum") {
+    const p = AppState.params.momentum;
+    const v_after = (((p.m1 - p.m2) / (p.m1 + p.m2)) * p.v1 + ((2 * p.m2) / (p.m1 + p.m2)) * p.v2).toFixed(1);
+    hintEl.innerHTML = isAr
+      ? `تصادم مرن: سرعة العربة الأولى بعد التصادم $v_1' = \\frac{m_1 - m_2}{m_1 + m_2}v_1 + \\frac{2m_2}{m_1+m_2}v_2 \\approx ${v_after}\\text{ m/s}$.`
+      : `Elastic collision: Cart 1 final velocity $v_1' = \\frac{m_1 - m_2}{m_1 + m_2}v_1 + \\frac{2m_2}{m_1+m_2}v_2 \\approx ${v_after}\\text{ m/s}$.`;
+  } else if (mod === "vectors") {
+    const p = AppState.params.vectors;
+    const R_theor = Math.hypot(p.Fx, p.Fy).toFixed(1);
+    hintEl.innerHTML = isAr
+      ? `المحصلة المتعامدة: $R = \\sqrt{F_x^2 + F_y^2} = \\sqrt{${p.Fx}^2 + ${p.Fy}^2} \\approx ${R_theor}\\text{ N}$.`
+      : `Orthogonal resultant: $R = \\sqrt{F_x^2 + F_y^2} = \\sqrt{${p.Fx}^2 + ${p.Fy}^2} \\approx ${R_theor}\\text{ N}$.`;
+  } else if (mod === "equilibrium") {
+    hintEl.innerHTML = isAr
+      ? `شرط الاتزان: محصلة القوى $\\sum F_x = 0$ و $\\sum F_y = 0$.`
+      : `Static equilibrium condition: $\\sum F_x = 0$ and $\\sum F_y = 0$.`;
+  }
+  typesetMath(hintEl);
+}
+
+async function saveSimulationSnapshot(achieved) {
+  const mod = AppState.activeModule;
+  const p = AppState.params[mod];
+  const history = AppState.sim.history || [];
+  const capped = history.slice(0, 25).map(pt => ({
+    t: parseFloat(pt.t?.toFixed(2) || 0),
+    v: parseFloat(pt.v?.toFixed(2) || 0),
+    s: parseFloat(pt.s?.toFixed(2) || 0)
+  }));
+
+  const metrics = {
+    achieved: Boolean(achieved),
+    duration: parseFloat(AppState.sim.time?.toFixed(2) || 0),
+    peak_v: history.length > 0 ? Math.max(...history.map(h => h.v || 0)) : 0
+  };
+
+  try {
+    await apiFetch("/api/lab/snapshot", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        module_id: mod,
+        level_id: AppState.activeLevel,
+        params_summary: p,
+        metrics_summary: metrics,
+        capped_samples: capped
+      })
+    });
+  } catch (e) {
+    // Background sync silent fail
+  }
+}
+
+function setupPhysicsCalculator() {
+  const modal = document.getElementById("calcModal");
+  const openBtn = document.getElementById("toggleCalcBtn");
+  const closeBtn = document.getElementById("closeCalcBtn");
+  const input = document.getElementById("calcExprInput");
+  const resDisplay = document.getElementById("calcResultVal");
+
+  if (!modal || !openBtn) return;
+
+  openBtn.addEventListener("click", () => {
+    modal.style.display = "flex";
+    if (input) setTimeout(() => input.focus(), 100);
+  });
+
+  if (closeBtn) {
+    closeBtn.addEventListener("click", () => {
+      modal.style.display = "none";
+    });
+  }
+
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) modal.style.display = "none";
+  });
+
+  const evaluateExpr = () => {
+    const raw = (input.value || "").trim();
+    if (!raw) {
+      resDisplay.textContent = "= 0";
+      return;
+    }
+    try {
+      let sanitized = raw
+        .replace(/sqrt\(/g, "Math.sqrt(")
+        .replace(/sin\(/g, "Math.sin(")
+        .replace(/cos\(/g, "Math.cos(")
+        .replace(/tan\(/g, "Math.tan(")
+        .replace(/\^/g, "**")
+        .replace(/pi/gi, "Math.PI")
+        .replace(/g/g, "9.81");
+      if (/^[0-9+\-*/().\s,Math.sqrticontaPI*]+$/.test(sanitized)) {
+        const val = Function(`'use strict'; return (${sanitized});`)();
+        if (typeof val === "number" && !isNaN(val)) {
+          resDisplay.textContent = `= ${parseFloat(val.toFixed(4))}`;
+          resDisplay.style.color = "var(--color-accent)";
+        } else {
+          resDisplay.textContent = "= Error";
+          resDisplay.style.color = "var(--color-danger)";
+        }
+      } else {
+        resDisplay.textContent = "= Invalid";
+        resDisplay.style.color = "var(--color-danger)";
+      }
+    } catch {
+      resDisplay.textContent = "= Error";
+      resDisplay.style.color = "var(--color-danger)";
+    }
+  };
+
+  if (input) {
+    input.addEventListener("input", evaluateExpr);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") evaluateExpr();
+      if (e.key === "Escape") modal.style.display = "none";
+    });
+  }
+
+  document.querySelectorAll(".calc-pill").forEach(pill => {
+    pill.addEventListener("click", () => {
+      const ins = pill.getAttribute("data-insert");
+      if (ins && input) {
+        input.value += ins;
+        input.focus();
+        evaluateExpr();
+      }
+    });
+  });
+}
+
 function setupSimControls() {
   document.getElementById("runSimBtn").addEventListener("click", () => simEngine.start());
   document.getElementById("pauseSimBtn").addEventListener("click", () => simEngine.pause());
+  document.getElementById("stepSimBtn")?.addEventListener("click", () => simEngine.step());
   document.getElementById("resetSimBtn").addEventListener("click", () => simEngine.reset());
+
+  setupPhysicsCalculator();
+  updateSimHint();
 
   // Speed chips
   document.querySelectorAll(".speed-control .btn-chip").forEach((btn) => {
@@ -1752,9 +2104,34 @@ function applyLanguage(lang) {
     }
   }
 
+  // Strict placeholder localization
+  const isAr = (lang === "ar");
+  const loginEmail = document.getElementById("loginEmail");
+  if (loginEmail) loginEmail.placeholder = isAr ? "أدخل بريدك الإلكتروني" : "Enter your email";
+  const loginPassword = document.getElementById("loginPassword");
+  if (loginPassword) loginPassword.placeholder = isAr ? "أدخل كلمة المرور" : "Enter your password";
+  const registerFullName = document.getElementById("registerFullName");
+  if (registerFullName) registerFullName.placeholder = isAr ? "أدخل اسمك بالكامل" : "Enter your name";
+  const registerEmail = document.getElementById("registerEmail");
+  if (registerEmail) registerEmail.placeholder = isAr ? "أدخل بريدك الإلكتروني" : "Enter your email";
+  const registerPassword = document.getElementById("registerPassword");
+  if (registerPassword) registerPassword.placeholder = isAr ? "أدخل كلمة المرور" : "Enter your password";
+  const forgotEmail = document.getElementById("forgotEmail");
+  if (forgotEmail) forgotEmail.placeholder = isAr ? "أدخل بريدك الإلكتروني" : "Enter your email";
+  const resetNewPassword = document.getElementById("resetNewPassword");
+  if (resetNewPassword) resetNewPassword.placeholder = isAr ? "أدخل كلمة المرور" : "Enter your password";
+  const instCode = document.getElementById("registerInstructorCode");
+  if (instCode) instCode.placeholder = isAr ? "أدخل كود دعوة المعيد (مثل: PHYSIX-FACULTY-2026)" : "Enter instructor access code (e.g. PHYSIX-FACULTY-2026)";
+
+  const langBtn = document.getElementById("langToggle");
+  if (langBtn) langBtn.title = isAr ? "التبديل إلى الإنجليزية" : "Switch Language";
+  const logoutBtn = document.getElementById("logoutBtn");
+  if (logoutBtn) logoutBtn.title = isAr ? "تسجيل الخروج" : "Sign Out";
+
   updateMissionBanner(AppState.activeModule, AppState.activeLevel);
   renderModuleControls(AppState.activeModule);
   if (topicSelect) renderSolverInputs(topicSelect.value);
+  updateSimHint();
   if (simEngine) simEngine.render();
 }
 
@@ -2008,6 +2385,20 @@ function setupExamMode() {
     examEntryBox.style.margin = "30px auto";
   }
 
+  const syncExamIdentity = () => {
+    const nameEl = document.getElementById("examSessionStudentName");
+    const emailEl = document.getElementById("examSessionStudentEmail");
+    if (AppState.user) {
+      if (nameEl) nameEl.textContent = AppState.user.full_name || "Student";
+      if (emailEl) emailEl.textContent = AppState.user.email || "";
+      const emailInput = document.getElementById("examStudentEmailInput");
+      const nameInput = document.getElementById("examStudentNameInput");
+      if (emailInput) emailInput.value = AppState.user.email || "";
+      if (nameInput) nameInput.value = AppState.user.full_name || "";
+    }
+  };
+  syncExamIdentity();
+
   let activeSheetCode = "";
   let activeStudentEmail = "";
   let activeStudentName = "";
@@ -2028,7 +2419,7 @@ function setupExamMode() {
     }
 
     try {
-      const res = await fetch(`/api/exam/sheet/${code}?email=${encodeURIComponent(email)}`);
+      const res = await apiFetch(`/api/exam/sheet/${code}?email=${encodeURIComponent(email)}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Sheet not found");
 
@@ -2038,7 +2429,11 @@ function setupExamMode() {
       }
 
       if (data.already_submitted) {
-        showExamResult(data.submission.score, data.submission.passed, "Exam already submitted.");
+        showExamResult(data.submission.score, data.submission.passed, "Exam already submitted.", {
+          allow_review: data.allow_review,
+          submission: data.submission,
+          questions: data.questions
+        });
         return;
       }
 
@@ -2062,7 +2457,7 @@ function setupExamMode() {
       document.getElementById("examCodeBadge").textContent = `${data.sheet_code} [Set ${data.active_model || 'A'}]`;
       document.getElementById("examActiveTitle").textContent = data.title;
       document.getElementById("examStudentGreeting").innerHTML = `
-        Candidate: <strong>${name}</strong> (${email})
+        Student: <strong>${name}</strong> (${email})
         <button type="button" class="btn btn-outline btn-sm" id="exitExamBtn" style="margin-left:14px; padding:2px 8px; font-size:0.75rem;">Exit / خروج</button>
       `;
 
@@ -2170,13 +2565,11 @@ function setupExamMode() {
       submitBtn.innerHTML = `<span class="spinner-sm" style="display:inline-block; margin-right:8px;"></span> Submitting answers...`;
 
       try {
-        const res = await fetch("/api/exam/submit", {
+        const res = await apiFetch("/api/exam/submit", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             sheet_code: activeSheetCode,
-            student_email: activeStudentEmail,
-            student_name: activeStudentName,
             answers
           })
         });
@@ -2186,7 +2579,13 @@ function setupExamMode() {
         if (AppState.activeExam) {
           AppState.activeExam.submitted = true;
         }
-        showExamResult(data.score, data.passed, data.message);
+        showExamResult(data.score, data.passed, data.message, {
+          allow_review: data.allow_review,
+          correct_answers: data.correct_answers,
+          total_questions: data.total_questions,
+          answers: answers,
+          questions: AppState.activeExam ? AppState.activeExam.questions : []
+        });
       } catch (err) {
         alert("Exam Submission Error / خطأ في تسليم الامتحان: " + (err.message || "Failed to submit answers."));
       } finally {
@@ -2204,21 +2603,54 @@ function setupExamMode() {
   }
 }
 
-function showExamResult(score, passed, message) {
+function showExamResult(score, passed, message, extra = {}) {
   document.getElementById("examEntryBox").style.display = "none";
   document.getElementById("examActiveSheet").style.display = "none";
   const resBox = document.getElementById("examResultBox");
   resBox.style.display = "block";
   resBox.style.margin = "40px auto";
-  resBox.style.maxWidth = "540px";
+  resBox.style.maxWidth = "560px";
   resBox.style.textAlign = "center";
 
   const scoreEl = document.getElementById("resultScoreVal");
-  scoreEl.textContent = `${score}%`;
+  if (extra.total_questions) {
+    scoreEl.textContent = `${score}% (${extra.correct_answers}/${extra.total_questions} Correct)`;
+  } else {
+    scoreEl.textContent = `${score}%`;
+  }
   scoreEl.style.color = passed ? "var(--color-emerald)" : "var(--color-danger)";
 
   document.getElementById("resultTitle").textContent = passed ? "Passed Practical Assessment" : "Assessment Complete (Needs Review)";
   document.getElementById("resultMsg").textContent = message;
+
+  const reviewBtn = document.getElementById("reviewExamBtn");
+  const reviewContainer = document.getElementById("examReviewContainer");
+
+  if (reviewBtn && reviewContainer) {
+    if (extra.allow_review && extra.questions) {
+      reviewBtn.style.display = "inline-block";
+      reviewBtn.onclick = () => {
+        if (reviewContainer.style.display === "block") {
+          reviewContainer.style.display = "none";
+          reviewBtn.textContent = (AppState.lang === "ar" ? "مراجعة الأسئلة والحلول" : "Review Questions & Answers");
+        } else {
+          reviewContainer.style.display = "block";
+          reviewBtn.textContent = (AppState.lang === "ar" ? "إخفاء المراجعة" : "Hide Review");
+          reviewContainer.innerHTML = extra.questions.map((q, idx) => `
+            <div style="background:var(--bg-surface); border:1px solid var(--border-color); border-radius:8px; padding:12px; margin-bottom:10px;">
+              <strong>Q${idx+1}: ${q.title}</strong>
+              <p style="font-size:0.85rem; color:var(--text-muted); margin:4px 0;">${AppState.lang === 'ar' ? (q.prompt_ar || q.prompt) : q.prompt}</p>
+              <div style="font-size:0.82rem; font-family:var(--font-mono); color:var(--color-accent);">Your Answer: ${extra.answers ? (extra.answers[q.id] || "No answer") : "-"}</div>
+            </div>
+          `).join("");
+          typesetMath(reviewContainer);
+        }
+      };
+    } else {
+      reviewBtn.style.display = "none";
+      reviewContainer.style.display = "none";
+    }
+  }
 
   if (!document.getElementById("takeAnotherExamBtn")) {
     const btnRow = document.getElementById("returnToLabBtn")?.parentElement;
@@ -2411,7 +2843,7 @@ function setupInstructorPortal() {
       const isLocking = toggleLockBtn.textContent.includes("Lock");
       try {
         toggleLockBtn.disabled = true;
-        const res = await fetch(`/api/instructor/sheet/${sheetCode}/settings`, {
+        const res = await apiFetch(`/api/instructor/sheet/${sheetCode}/settings`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -2441,7 +2873,7 @@ function setupInstructorPortal() {
 
       try {
         saveSettingsBtn.disabled = true;
-        const res = await fetch(`/api/instructor/sheet/${sheetCode}/settings`, {
+        const res = await apiFetch(`/api/instructor/sheet/${sheetCode}/settings`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -2622,7 +3054,7 @@ function setupInstructorPortal() {
     }
 
     try {
-      const res = await fetch("/api/instructor/sheets/create", {
+      const res = await apiFetch("/api/instructor/sheets/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -2651,7 +3083,7 @@ async function refreshInstructorSheets() {
   if (!select || !email) return;
 
   try {
-    const res = await fetch(`/api/instructor/sheets?email=${encodeURIComponent(email)}`);
+    const res = await apiFetch(`/api/instructor/sheets`);
     const data = await res.json();
     const sheets = data.sheets || [];
     select.innerHTML = "";
@@ -2690,7 +3122,7 @@ async function loadInstructorAnalytics(sheetCode) {
   if (!sheetCode) return;
   const email = AppState.user?.email || "";
   try {
-    const res = await fetch(`/api/instructor/sheet/${sheetCode}/analytics?email=${encodeURIComponent(email)}`);
+    const res = await apiFetch(`/api/instructor/sheet/${sheetCode}/analytics`);
     const data = await res.json();
     if (!res.ok) return;
 
@@ -2718,7 +3150,8 @@ async function loadInstructorAnalytics(sheetCode) {
     }
 
     // Export link scoped to instructor
-    document.getElementById("exportCsvBtn").href = `/api/instructor/sheet/${sheetCode}/export-csv?email=${encodeURIComponent(email)}`;
+    const userToken = localStorage.getItem("physix_token") || "";
+    document.getElementById("exportCsvBtn").href = `/api/instructor/sheet/${sheetCode}/export-csv?token=${encodeURIComponent(userToken)}`;
 
     // Weak spots list
     const weakList = document.getElementById("weakSpotsList");
@@ -2869,22 +3302,38 @@ async function uploadVisionFile(file, sampleText = "") {
       body: formData
     });
     const data = await res.json();
-    window._lastVisionExtracted = data.extracted;
 
+    if (data.status === "invalid_image" || !data.extracted) {
+      document.getElementById("visionEngineBadge").textContent = data.engine || "Validator";
+      document.getElementById("visionActions").style.display = "none";
+      const isAr = (AppState.lang === "ar");
+      body.innerHTML = `
+        <div style="background:rgba(239, 68, 68, 0.1); border:1px solid rgba(239, 68, 68, 0.3); border-radius:8px; padding:16px; color:#dc2626;">
+          <div style="display:flex; align-items:center; gap:8px; font-weight:700; margin-bottom:4px;">
+            <span>⚠️</span>
+            <span>${isAr ? "صورة غير صالحة" : "Invalid Physics Image"}</span>
+          </div>
+          <p style="margin:0; font-size:0.88rem; line-height:1.5;">${data.message || (isAr ? "لم نجد أرقاماً أو مسألة فيزيائية قابلة للاستخراج في هذه الصورة. يرجى رفع صورة واضحة تحتوي على مسألة أو أرقام ومعادلات." : "No usable physics parameters or numbers found in this image. Please upload a clear photo showing a mechanics problem or equations.")}</p>
+        </div>
+      `;
+      return;
+    }
+
+    window._lastVisionExtracted = data.extracted;
     document.getElementById("visionEngineBadge").textContent = data.engine;
     document.getElementById("visionActions").style.display = "block";
 
     body.innerHTML = `
-    typesetMath(document.getElementById(body) || (typeof body === 'object' ? body : null));
       <div style="display:flex; flex-direction:column; gap:8px;">
-        <p><strong>Topic Identified:</strong> <span class="badge badge-primary">${data.extracted.topic.toUpperCase()}</span></p>
-        <p><strong>Summary:</strong> ${data.extracted.problem_summary}</p>
+        <p><strong>Topic Identified:</strong> <span class="badge badge-primary">${(data.extracted.topic || "Physics").toUpperCase()}</span></p>
+        <p><strong>Summary:</strong> ${data.extracted.problem_summary || ""}</p>
         <div style="background:var(--bg-surface); padding:10px; border-radius:6px; border:1px solid var(--border-color);">
           <strong>Extracted Physical Parameters:</strong>
           <pre style="font-family:'JetBrains Mono'; margin-top:6px; font-size:0.85rem;">${JSON.stringify(data.extracted.variables, null, 2)}</pre>
         </div>
       </div>
     `;
+    typesetMath(body);
   } catch (e) {
     body.innerHTML = `<p style="color:var(--color-danger)">Extraction failed: ${e.message}</p>`;
     typesetMath(document.getElementById(body) || (typeof body === 'object' ? body : null));
@@ -3045,6 +3494,16 @@ function setupAuthGate() {
     otpCountdownTimer = setInterval(renderTimer, 1000);
   }
 
+  // Toggle instructor access code field
+  document.querySelectorAll("input[name='registerRole']").forEach(radio => {
+    radio.addEventListener("change", (e) => {
+      const codeGroup = document.getElementById("registerInstructorCodeGroup");
+      if (codeGroup) {
+        codeGroup.style.display = (e.target.value === "instructor") ? "block" : "none";
+      }
+    });
+  });
+
   // Navigation between states
   if (tabLogin) tabLogin.addEventListener("click", () => switchState("login"));
   if (tabRegister) tabRegister.addEventListener("click", () => switchState("register"));
@@ -3112,6 +3571,8 @@ function setupAuthGate() {
         // Login Successful
         AppState.user = data.user;
         localStorage.setItem("physix_user", JSON.stringify(data.user));
+        if (data.token) localStorage.setItem("physix_token", data.token);
+        if (data.token) localStorage.setItem("physix_token", data.token);
 
         // Restore saved stars/progress
         if (data.progress) {
@@ -3143,14 +3604,19 @@ function setupAuthGate() {
       const fullName = document.getElementById("registerFullName").value.trim();
       const email = document.getElementById("registerEmail").value.trim();
       const password = document.getElementById("registerPassword").value.trim();
+      const instructorCode = document.getElementById("registerInstructorCode")?.value.trim() || "";
 
       if (!fullName || !email || !password) {
         showAlert("Please fill out all registration fields / يرجى تعبئة كافة الحقول.");
         return;
       }
 
-      if (password.length < 6) {
-        showAlert("Password must be at least 6 characters / كلمة المرور يجب أن لا تقل عن 6 أحرف.");
+      if (password.length < 8) {
+        showAlert("Password must be at least 8 characters / كلمة المرور يجب أن لا تقل عن 8 أحرف.");
+        return;
+      }
+      if (!(/[a-zA-Z]/.test(password) && /[0-9]/.test(password))) {
+        showAlert("Password must contain both letters and numbers / يجب أن تحتوي كلمة المرور على أحرف وأرقام معاً.");
         return;
       }
 
@@ -3163,7 +3629,8 @@ function setupAuthGate() {
             email,
             password,
             full_name: fullName,
-            role
+            role,
+            instructor_code: role === "instructor" ? instructorCode : undefined
           })
         });
         const data = await res.json();
@@ -3211,6 +3678,7 @@ function setupAuthGate() {
 
         AppState.user = data.user;
         localStorage.setItem("physix_user", JSON.stringify(data.user));
+        if (data.token) localStorage.setItem("physix_token", data.token);
 
         if (data.progress) {
           data.progress.forEach((p) => {
@@ -3302,8 +3770,12 @@ function setupAuthGate() {
         showAlert("Please enter the 6-digit reset code received by email.");
         return;
       }
-      if (!newPassword || newPassword.length < 6) {
-        showAlert("New password must be at least 6 characters.");
+      if (!newPassword || newPassword.length < 8) {
+        showAlert("New password must be at least 8 characters / كلمة المرور يجب أن لا تقل عن 8 أحرف.");
+        return;
+      }
+      if (!(/[a-zA-Z]/.test(newPassword) && /[0-9]/.test(newPassword))) {
+        showAlert("New password must contain both letters and numbers / يجب أن تحتوي كلمة المرور على أحرف وأرقام.");
         return;
       }
 
@@ -3321,6 +3793,7 @@ function setupAuthGate() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || "Failed to reset password.");
 
+        if (data.token) localStorage.setItem("physix_token", data.token);
         switchState("login");
         showAlert("✓ Password successfully reset! You can now sign in with your new password.", true);
         const loginEmailInput = document.getElementById("loginEmail");

@@ -1868,3 +1868,277 @@ body {
   text-decoration: underline;
   opacity: 0.85;
 }
+
+
+/* ==========================================================================
+   Dedicated Split Auth Portal Layout
+   ========================================================================== */
+.auth-split-layout {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  max-width: 960px;
+  min-height: 560px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-lg), 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  transition: all 0.25s ease;
+}
+
+[dir="rtl"] .auth-split-layout {
+  flex-direction: row-reverse;
+}
+
+.auth-branding-panel {
+  flex: 1;
+  background: linear-gradient(145deg, #0969da 0%, #1e3a8a 50%, #0f172a 100%);
+  color: #ffffff;
+  padding: 44px 36px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  position: relative;
+}
+
+[data-theme="dark"] .auth-branding-panel {
+  background: linear-gradient(145deg, #0369a1 0%, #1e293b 55%, #090d16 100%);
+}
+
+.auth-brand-logo {
+  width: 60px;
+  height: 60px;
+  border-radius: 14px;
+  overflow: hidden;
+  margin-bottom: 20px;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.25);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+.auth-brand-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.auth-brand-name {
+  font-size: 1.85rem;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  margin-bottom: 6px;
+  color: #ffffff;
+}
+
+.auth-brand-tagline {
+  font-size: 0.92rem;
+  opacity: 0.9;
+  line-height: 1.5;
+  margin-bottom: 24px;
+  color: #e0f2fe;
+}
+
+.auth-brand-features {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 24px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 0.88rem;
+}
+
+.auth-brand-features li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  opacity: 0.95;
+  color: #f0fdf4;
+}
+
+.auth-brand-features li::before {
+  content: "✓";
+  font-weight: 800;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.2);
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.auth-brand-formula {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: #93c5fd;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  letter-spacing: 0.5px;
+}
+
+.auth-form-panel {
+  flex: 1.15;
+  padding: 32px 36px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  background: var(--bg-surface);
+}
+
+@media (max-width: 840px) {
+  .auth-split-layout {
+    flex-direction: column !important;
+    max-width: 480px;
+  }
+  .auth-branding-panel {
+    padding: 30px 24px 24px 24px;
+  }
+  .auth-brand-features {
+    display: none;
+  }
+  .auth-form-panel {
+    padding: 24px;
+  }
+}
+
+/* Session Identity Box in exam */
+.session-identity-box {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-color);
+  border-left: 4px solid var(--color-accent);
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 16px;
+  text-align: left;
+}
+
+[dir="rtl"] .session-identity-box {
+  text-align: right;
+  border-left: 1px solid var(--border-color);
+  border-right: 4px solid var(--color-accent);
+}
+
+/* Simulation Hint Card */
+.sim-hint-card {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.hint-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  color: var(--color-accent);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.5px;
+}
+
+.hint-card-body {
+  color: var(--text-main);
+}
+
+/* Compact Physics Calculator Widget */
+.calc-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  backdrop-filter: blur(4px);
+}
+
+.calc-card {
+  width: 350px;
+  max-width: 92vw;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg), 0 20px 30px rgba(0,0,0,0.3);
+  overflow: hidden;
+}
+
+.calc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--bg-surface-elevated);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 0.9rem;
+}
+
+.calc-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.calc-display-wrap {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+}
+
+.calc-input {
+  border: none;
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  color: var(--text-main);
+  outline: none;
+  width: 100%;
+}
+
+.calc-result-display {
+  font-family: var(--font-mono);
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--color-accent);
+  text-align: right;
+  margin-top: 6px;
+}
+
+.calc-quick-pills {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.calc-pill {
+  padding: 6px 4px;
+  font-size: 0.82rem;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface-elevated);
+  color: var(--text-main);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.calc-pill:hover {
+  background: var(--color-accent);
+  color: #ffffff;
+  border-color: var(--color-accent);
+}

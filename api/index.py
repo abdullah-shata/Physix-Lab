@@ -5,6 +5,8 @@ import math
 import random
 import sqlite3
 import hashlib
+import hmac
+import time
 import uuid
 import smtplib
 import ssl
@@ -302,6 +304,130 @@ def verify_password(password: str, stored_hash: str) -> bool:
     except Exception:
         return False
 
+# ---------------------------------------------------------
+# Session Token & Authorization Security
+# ---------------------------------------------------------
+SESSION_SECRET = os.getenv("SESSION_SECRET", "physix-lab-jwt-session-secret-salt-2026")
+INSTRUCTOR_ACCESS_CODE = os.getenv("INSTRUCTOR_ACCESS_CODE", "PHYSIX-FACULTY-2026")
+INSTRUCTOR_ALLOWLIST = [
+    e.strip().lower() for e in os.getenv("INSTRUCTOR_ALLOWLIST", "sarah.nour@univ.edu,instructor@univ.edu,faculty@univ.edu").split(",") if e.strip()
+]
+
+RATE_LIMITS: Dict[str, List[float]] = {}
+
+def get_client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "127.0.0.1"
+
+def check_rate_limit(key: str, max_requests: int, window_seconds: int) -> tuple:
+    now = time.time()
+    existing = RATE_LIMITS.get(key, [])
+    valid = [t for t in existing if now - t < window_seconds]
+    if len(valid) >= max_requests:
+        retry_after = int(window_seconds - (now - valid[0])) + 1
+        return False, max(1, retry_after)
+    valid.append(now)
+    RATE_LIMITS[key] = valid
+    return True, 0
+
+def validate_password_strength(password: str) -> None:
+    if len(password) < 8:
+        raise HTTPException(
+            status_code=400,
+            detail="Password must be at least 8 characters long / كلمة المرور يجب أن لا تقل عن 8 أحرف"
+        )
+    has_letter = any(c.isalpha() for c in password)
+    has_digit = any(c.isdigit() for c in password)
+    if not (has_letter and has_digit):
+        raise HTTPException(
+            status_code=400,
+            detail="Password must contain both letters and numbers / يجب أن تحتوي كلمة المرور على أحرف وأرقام معاً"
+        )
+
+def verify_instructor_privilege(email: str, invite_code: Optional[str] = None) -> bool:
+    email_clean = email.lower().strip()
+    if email_clean in INSTRUCTOR_ALLOWLIST:
+        return True
+    if invite_code and invite_code.strip() == INSTRUCTOR_ACCESS_CODE:
+        return True
+    return False
+
+def create_session_token(user_id: str, email: str, role: str, full_name: str) -> str:
+    exp = int(time.time()) + (7 * 86400)
+    payload = {
+        "uid": str(user_id),
+        "email": email.lower().strip(),
+        "role": role,
+        "name": full_name,
+        "exp": exp
+    }
+    raw = json.dumps(payload, separators=(',', ':')).encode('utf-8')
+    b64_payload = base64.urlsafe_b64encode(raw).decode('utf-8').rstrip('=')
+    sig = hmac.new(SESSION_SECRET.encode('utf-8'), b64_payload.encode('utf-8'), hashlib.sha256).hexdigest()
+    return f"{b64_payload}.{sig}"
+
+def verify_session_token(token: str) -> Optional[dict]:
+    try:
+        parts = token.split('.')
+        if len(parts) != 2:
+            return None
+        b64_payload, sig = parts
+        expected_sig = hmac.new(SESSION_SECRET.encode('utf-8'), b64_payload.encode('utf-8'), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected_sig):
+            return None
+        pad = len(b64_payload) % 4
+        if pad:
+            b64_payload += '=' * (4 - pad)
+        raw = base64.urlsafe_b64decode(b64_payload.encode('utf-8')).decode('utf-8')
+        payload = json.loads(raw)
+        if time.time() > payload.get("exp", 0):
+            return None
+        return payload
+    except Exception:
+        return None
+
+def get_current_user(request: Request) -> dict:
+    auth_header = request.headers.get("Authorization")
+    bearer_token = None
+    if auth_header and auth_header.startswith("Bearer "):
+        bearer_token = auth_header[7:].strip()
+    elif "token" in request.query_params:
+        bearer_token = request.query_params["token"].strip()
+    
+    if not bearer_token:
+        bearer_token = request.cookies.get("physix_token")
+
+    if not bearer_token:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required. Please sign in. / تسجيل الدخول مطلوب للوصول لهذه الخدمة."
+        )
+
+    payload = verify_session_token(bearer_token)
+    if not payload:
+        raise HTTPException(
+            status_code=401,
+            detail="Session has expired or is invalid. Please sign in again. / انتهت صلاحية الجلسة، يرجى تسجيل الدخول مجدداً."
+        )
+
+    return {
+        "id": payload["uid"],
+        "user_id": payload["uid"],
+        "email": payload["email"],
+        "role": payload["role"],
+        "full_name": payload.get("name", "Student")
+    }
+
+def get_current_instructor(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") != "instructor":
+        raise HTTPException(
+            status_code=403,
+            detail="Access forbidden: Instructor role required. / غير مصرح: تتطلب هذه العملية صلاحيات معيد أو دكتور."
+        )
+    return user
+
 def send_otp_email(to_email: str, otp: str, full_name: str = "Student", subject_prefix: str = "Email Verification") -> bool:
     smtp_email = os.getenv("SMTP_EMAIL", "").strip()
     smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
@@ -483,13 +609,15 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 custom_questions TEXT,
                 is_locked INTEGER DEFAULT 0,
-                active_model TEXT DEFAULT 'A'
+                active_model TEXT DEFAULT 'A',
+                allow_review INTEGER DEFAULT 0
             )
         """)
         for col_name, col_type in [
             ("custom_questions", "TEXT"),
             ("is_locked", "INTEGER DEFAULT 0"),
-            ("active_model", "TEXT DEFAULT 'A'")
+            ("active_model", "TEXT DEFAULT 'A'"),
+            ("allow_review", "INTEGER DEFAULT 0")
         ]:
             try:
                 cursor.execute(f"ALTER TABLE lab_sheets ADD COLUMN {col_name} {col_type}")
@@ -515,6 +643,21 @@ def init_db():
             cursor.execute("ALTER TABLE exam_submissions ADD COLUMN user_id TEXT")
         except Exception:
             pass
+
+        # 5. Bounded Lab Snapshots table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS lab_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT,
+                user_email TEXT NOT NULL,
+                module_id TEXT NOT NULL,
+                level_id INTEGER NOT NULL,
+                params_summary TEXT NOT NULL,
+                metrics_summary TEXT NOT NULL,
+                capped_samples TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
 
         # Seed default starter lab sheet if empty
         cursor.execute("SELECT COUNT(*) FROM lab_sheets WHERE sheet_code = 'MECH-2026'")
@@ -559,6 +702,7 @@ class RegisterRequest(BaseModel):
     password: str
     full_name: str
     role: str = "student"
+    instructor_code: Optional[str] = None
 
 class VerifyOtpRequest(BaseModel):
     email: EmailStr
@@ -583,6 +727,7 @@ class ExamSettingsRequest(BaseModel):
     title: Optional[str] = None
     topics: Optional[List[str]] = None
     custom_questions: Optional[List[Dict[str, Any]]] = None
+    allow_review: Optional[bool] = None
 
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -596,20 +741,28 @@ class SaveProgressRequest(BaseModel):
     stars: int
     score: float
 
+class SaveSnapshotRequest(BaseModel):
+    module_id: str
+    level_id: int
+    params_summary: Dict[str, Any]
+    metrics_summary: Dict[str, Any]
+    capped_samples: Optional[List[Dict[str, Any]]] = None
+
 class CreateSheetRequest(BaseModel):
     sheet_code: str
     title: str
-    instructor_email: EmailStr
+    instructor_email: Optional[EmailStr] = None
     topics: List[str] = []
     num_questions: int = 4
     passing_score: float = 60.0
     custom_questions: Optional[List[Dict[str, Any]]] = None
+    allow_review: Optional[bool] = False
 
 class SubmitExamRequest(BaseModel):
     sheet_code: str
-    student_email: EmailStr
-    student_name: str
     answers: Dict[str, Any]
+    student_email: Optional[EmailStr] = None
+    student_name: Optional[str] = None
 
 class SolverRequest(BaseModel):
     topic: str
@@ -649,7 +802,15 @@ def health():
 # Mandatory Auth & Email OTP Endpoints
 # ---------------------------------------------------------
 @app.post("/api/auth/register")
-def register(req: RegisterRequest):
+def register(req: RegisterRequest, request: Request):
+    ip = get_client_ip(request)
+    allowed, retry_after = check_rate_limit(f"reg_{ip}", max_requests=6, window_seconds=300)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many registration attempts. Please wait {retry_after} seconds before trying again."
+        )
+
     email = req.email.lower().strip()
     full_name = req.full_name.strip()
     role = req.role.lower().strip() if req.role in ["student", "instructor"] else "student"
@@ -657,8 +818,14 @@ def register(req: RegisterRequest):
 
     if not full_name:
         raise HTTPException(status_code=400, detail="Full name is required / الاسم بالكامل مطلوب")
-    if len(password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters / كلمة المرور يجب أن لا تقل عن 6 أحرف")
+    validate_password_strength(password)
+
+    if role == "instructor":
+        if not verify_instructor_privilege(email, req.instructor_code):
+            raise HTTPException(
+                status_code=403,
+                detail="Instructor registration requires an authorized institutional email or a valid instructor access code. / يتطلب التسجيل كمعيد كود دعوة معتمد أو بريد جامعي مصرح به."
+            )
 
     # Generate 6-digit numeric OTP valid for 5 minutes
     otp = f"{random.randint(100000, 999999)}"
@@ -701,9 +868,16 @@ def register(req: RegisterRequest):
     }
 
 @app.post("/api/auth/verify-otp")
-def verify_otp(req: VerifyOtpRequest):
+def verify_otp(req: VerifyOtpRequest, request: Request):
     email = req.email.lower().strip()
     code = req.otp_code.strip()
+
+    allowed, retry_after = check_rate_limit(f"v_otp_{email}", max_requests=6, window_seconds=180)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many verification attempts for this email. Please wait {retry_after} seconds."
+        )
 
     with get_db() as conn:
         cursor = conn.cursor()
@@ -759,16 +933,24 @@ def verify_otp(req: VerifyOtpRequest):
             "is_verified": updated_user["is_verified"]
         }
 
+        token = create_session_token(updated_user["id"], updated_user["email"], updated_user["role"], updated_user["full_name"])
         return {
             "status": "verified",
+            "token": token,
             "user": user_session,
             "progress": progress,
             "submissions": submissions
         }
 
 @app.post("/api/auth/resend-otp")
-def resend_otp(req: ResendOtpRequest):
+def resend_otp(req: ResendOtpRequest, request: Request):
     email = req.email.lower().strip()
+    allowed, retry_after = check_rate_limit(f"resend_{email}", max_requests=3, window_seconds=300)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many resend requests for this email. Please wait {retry_after} seconds before requesting a new code."
+        )
 
     with get_db() as conn:
         cursor = conn.cursor()
@@ -803,8 +985,14 @@ def resend_otp(req: ResendOtpRequest):
         }
 
 @app.post("/api/auth/forgot-password")
-def forgot_password(req: ForgotPasswordRequest):
+def forgot_password(req: ForgotPasswordRequest, request: Request):
     email = req.email.lower().strip()
+    allowed, retry_after = check_rate_limit(f"forgot_{email}", max_requests=3, window_seconds=300)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many password reset requests. Please wait {retry_after} seconds before requesting another code."
+        )
 
     with get_db() as conn:
         cursor = conn.cursor()
@@ -836,16 +1024,18 @@ def forgot_password(req: ForgotPasswordRequest):
         }
 
 @app.post("/api/auth/reset-password")
-def reset_password(req: ResetPasswordRequest):
+def reset_password(req: ResetPasswordRequest, request: Request):
     email = req.email.lower().strip()
     code = req.otp_code.strip()
     new_password = req.new_password.strip()
 
-    if len(new_password) < 6:
+    allowed, retry_after = check_rate_limit(f"reset_{email}", max_requests=5, window_seconds=300)
+    if not allowed:
         raise HTTPException(
-            status_code=400,
-            detail="Password must be at least 6 characters / كلمة المرور يجب أن لا تقل عن 6 أحرف"
+            status_code=429,
+            detail=f"Too many reset attempts. Please wait {retry_after} seconds before trying again."
         )
+    validate_password_strength(new_password)
 
     with get_db() as conn:
         cursor = conn.cursor()
@@ -880,13 +1070,31 @@ def reset_password(req: ResetPasswordRequest):
         """, (new_pwd_hash, user_row["id"]))
         conn.commit()
 
+        token = create_session_token(user_row["id"], email, user_row["role"], user_row["full_name"])
         return {
             "status": "password_reset_success",
+            "token": token,
+            "user": {
+                "id": user_row["id"],
+                "user_id": user_row["id"],
+                "full_name": user_row["full_name"],
+                "email": email,
+                "role": user_row["role"],
+                "is_verified": 1
+            },
             "message": "Password updated successfully. You can now sign in with your new password. / تم تحديث كلمة المرور بنجاح. يمكنك تسجيل الدخول الآن."
         }
 
 @app.post("/api/auth/login")
-def login(req: LoginRequest):
+def login(req: LoginRequest, request: Request):
+    ip = get_client_ip(request)
+    allowed, retry_after = check_rate_limit(f"login_{ip}", max_requests=10, window_seconds=60)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many login attempts. Please wait {retry_after} seconds before trying again."
+        )
+
     email = req.email.lower().strip()
     password = req.password.strip()
 
@@ -970,8 +1178,10 @@ def login(req: LoginRequest):
         "is_verified": user_row["is_verified"]
     }
 
+    token = create_session_token(user_row["id"], user_row["email"], user_row["role"], user_row["full_name"])
     return {
         "status": "authenticated",
+        "token": token,
         "user": user_session,
         "progress": progress,
         "submissions": submissions
@@ -1064,6 +1274,37 @@ def save_progress(req: SaveProgressRequest):
         all_progress = [dict(row) for row in cursor.fetchall()]
 
         return {"status": "saved", "progress": all_progress}
+
+@app.post("/api/lab/snapshot")
+def save_lab_snapshot(req: SaveSnapshotRequest, request: Request):
+    auth_header = request.headers.get("Authorization")
+    bearer_token = None
+    if auth_header and auth_header.startswith("Bearer "):
+        bearer_token = auth_header[7:].strip()
+    elif "token" in request.query_params:
+        bearer_token = request.query_params["token"].strip()
+    user = verify_session_token(bearer_token) if bearer_token else None
+    user_id = user["uid"] if user else None
+    user_email = user["email"] if user else "guest@univ.edu"
+
+    capped = req.capped_samples[:25] if req.capped_samples else []
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO lab_snapshots (user_id, user_email, module_id, level_id, params_summary, metrics_summary, capped_samples)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            user_id,
+            user_email,
+            req.module_id,
+            req.level_id,
+            json.dumps(req.params_summary),
+            json.dumps(req.metrics_summary),
+            json.dumps(capped)
+        ))
+        conn.commit()
+
+    return {"status": "saved", "message": "Simulation snapshot recorded successfully."}
 
 # ---------------------------------------------------------
 # Smart Forward & Inverse Equation Solver
@@ -1649,28 +1890,51 @@ Return STRICT JSON ONLY without markdown formatting:
         except Exception as outer_e:
             print(f"[Gemini Vision Outer Error]: {outer_e}")
 
-    # Tier 3: Clean Local Physics Vision/Parser Backup (Zero raw errors shown to user)
+    # Tier 3: Local keyword-based fallback — strictly validated
+    physics_keywords = [
+        "incline", "ramp", "slope", "projectile", "launch", "angle", "velocity",
+        "acceleration", "force", "mass", "momentum", "collision", "gravity", "newton",
+        "kinematics", "displacement", "friction", "tension", "pulley", "spring",
+        "35", "45", "30", "60", "9.8", "9.81", "kg", "m/s", "n/m"
+    ]
+    has_physics_content = any(k in raw_text_hint for k in physics_keywords)
+
+    # Reject non-physics, blank, or non-numeric images cleanly
+    if not has_physics_content:
+        return {
+            "status": "invalid_image",
+            "extracted": None,
+            "engine": "validator",
+            "message": "No usable physics parameters or numbers found in image. Please upload a clear photo showing a mechanics problem or equations."
+        }
+
     if any(k in raw_text_hint for k in ["incline", "ramp", "slope", "35"]):
         fallback_data = {
             "topic": "inclined_plane",
             "variables": {"m": 4.5, "theta": 35.0, "mu_s": 0.45, "mu_k": 0.28, "a": None},
             "target_variable": "a",
-            "problem_summary": "A 4.5 kg block on a 35° inclined plane (μ_s = 0.45, μ_k = 0.28). / كتلة 4.5 كجم على سطح مائل بزاوية 35 درجة مع معامل احتكاك سكوني 0.45 وحركي 0.28."
+            "problem_summary": "A 4.5 kg block on a 35° inclined plane (μ_s = 0.45, μ_k = 0.28). Find acceleration."
         }
     elif any(k in raw_text_hint for k in ["projectile", "launch", "angle"]):
         fallback_data = {
             "topic": "projectile",
             "variables": {"v0": 30.0, "theta": 45.0, "range": None},
             "target_variable": "range",
-            "problem_summary": "Projectile launched at 30 m/s at 45° angle. / مقذوف أُطلق بسرعة ابتدائية 30 م/ث وبزاوية 45 درجة."
+            "problem_summary": "Projectile launched at 30 m/s at 45° angle. Find range."
+        }
+    elif any(k in raw_text_hint for k in ["momentum", "collision"]):
+        fallback_data = {
+            "topic": "momentum",
+            "variables": {"m1": 3.0, "v1": 5.0, "m2": 2.0, "v2": -2.0, "e": 1.0},
+            "target_variable": "v1_final",
+            "problem_summary": "Two carts (3 kg at 5 m/s, 2 kg at -2 m/s) collide elastically. Find final velocities."
         }
     else:
-        # Free-fall stone problem default (v0=0, g=9.8, t=4.5s -> vf=44.1 m/s)
         fallback_data = {
             "topic": "kinematics",
             "variables": {"v0": 0.0, "a": 9.8, "t": 4.5, "vf": None},
             "target_variable": "vf",
-            "problem_summary": "A stone falls freely from rest towards Earth for 4.5 s (g = 9.8 m/s²). Calculate its speed. / يسقط حجر سقوطاً حراً من السكون نحو الأرض لمدة 4.5 ثانية (g = 9.8 م/ث²). احسب سرعته."
+            "problem_summary": "A stone falls freely from rest for 4.5 s (g = 9.8 m/s²). Find final speed."
         }
 
     return {
@@ -1685,8 +1949,9 @@ Return STRICT JSON ONLY without markdown formatting:
 # Instructor Portal & Anti-Cheat Lab Sheet System
 # ---------------------------------------------------------
 @app.post("/api/instructor/sheets/create")
-def create_lab_sheet(req: CreateSheetRequest):
+def create_lab_sheet(req: CreateSheetRequest, instructor: dict = Depends(get_current_instructor)):
     code = req.sheet_code.upper().strip()
+    instructor_email = instructor["email"].lower().strip()
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT sheet_code FROM lab_sheets WHERE sheet_code = ?", (code,))
@@ -1695,47 +1960,26 @@ def create_lab_sheet(req: CreateSheetRequest):
         
         custom_q_json = json.dumps(req.custom_questions) if getattr(req, "custom_questions", None) else None
         q_count = len(req.custom_questions) if req.custom_questions else req.num_questions
-        topics_list = req.topics if req.topics else (["custom"] if req.custom_questions else ["newton", "projectiles", "inclined_plane", "vectors"])
+        topics_list = req.topics if req.topics else ["newton", "projectiles", "inclined_plane", "vectors", "equilibrium", "momentum"]
         cursor.execute("""
-            INSERT INTO lab_sheets (sheet_code, title, instructor_email, topics, num_questions, passing_score, custom_questions)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO lab_sheets (sheet_code, title, instructor_email, topics, num_questions, passing_score, custom_questions, allow_review)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             code,
             req.title.strip(),
-            req.instructor_email.lower().strip(),
+            instructor_email,
             json.dumps(topics_list),
             q_count,
             req.passing_score,
-            custom_q_json
+            custom_q_json,
+            1 if req.allow_review else 0
         ))
         conn.commit()
 
         return {"status": "created", "sheet_code": code}
 
-@app.get("/api/instructor/sheets")
-def get_instructor_sheets(email: str):
-    email = email.lower().strip()
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM lab_sheets WHERE instructor_email = ? ORDER BY created_at DESC", (email,))
-        sheets = [dict(row) for row in cursor.fetchall()]
-
-        # Attach count of submissions to each sheet
-        for s in sheets:
-            cursor.execute("SELECT COUNT(*), AVG(score) FROM exam_submissions WHERE sheet_code = ?", (s["sheet_code"],))
-            sub_count, avg_score = cursor.fetchone()
-            s["total_submissions"] = sub_count or 0
-            s["average_score"] = round(avg_score, 1) if avg_score else 0.0
-            if isinstance(s["topics"], str):
-                try:
-                    s["topics"] = json.loads(s["topics"])
-                except Exception:
-                    s["topics"] = []
-
-        return {"sheets": sheets}
-
 @app.get("/api/instructor/sheet/{code}/analytics")
-def get_sheet_analytics(code: str, email: Optional[str] = None):
+def get_sheet_analytics(code: str, instructor: dict = Depends(get_current_instructor)):
     code = code.upper().strip()
     with get_db() as conn:
         cursor = conn.cursor()
@@ -1744,7 +1988,7 @@ def get_sheet_analytics(code: str, email: Optional[str] = None):
         if not sheet:
             raise HTTPException(status_code=404, detail="Lab sheet not found")
         sheet_dict = dict(sheet)
-        if email and sheet_dict.get("instructor_email", "").lower() != email.lower().strip():
+        if sheet_dict.get("instructor_email", "").lower() != instructor["email"].lower():
             raise HTTPException(status_code=403, detail="Access denied: You do not own this lab sheet.")
 
         cursor.execute("""
@@ -1802,7 +2046,7 @@ def get_sheet_analytics(code: str, email: Optional[str] = None):
         }
 
 @app.get("/api/instructor/sheet/{code}/export-csv")
-def export_sheet_csv(code: str, email: Optional[str] = None):
+def export_sheet_csv(code: str, instructor: dict = Depends(get_current_instructor)):
     code = code.upper().strip()
     with get_db() as conn:
         cursor = conn.cursor()
@@ -1810,7 +2054,7 @@ def export_sheet_csv(code: str, email: Optional[str] = None):
         sheet = cursor.fetchone()
         if not sheet:
             raise HTTPException(status_code=404, detail="Lab sheet not found")
-        if email and dict(sheet).get("instructor_email", "").lower() != email.lower().strip():
+        if dict(sheet).get("instructor_email", "").lower() != instructor["email"].lower():
             raise HTTPException(status_code=403, detail="Access denied: You do not own this lab sheet.")
 
         cursor.execute("""
@@ -1839,13 +2083,10 @@ def export_sheet_csv(code: str, email: Optional[str] = None):
     )
 
 @app.get("/api/instructor/sheets")
-def get_instructor_sheets(email: Optional[str] = None):
+def get_instructor_sheets(instructor: dict = Depends(get_current_instructor)):
     with get_db() as conn:
         cursor = conn.cursor()
-        if email:
-            cursor.execute("SELECT * FROM lab_sheets WHERE LOWER(instructor_email) = LOWER(?) ORDER BY created_at DESC", (email.strip(),))
-        else:
-            cursor.execute("SELECT * FROM lab_sheets ORDER BY created_at DESC")
+        cursor.execute("SELECT * FROM lab_sheets WHERE LOWER(instructor_email) = LOWER(?) ORDER BY created_at DESC", (instructor["email"].lower().strip(),))
         sheets = [dict(r) for r in cursor.fetchall()]
 
         # Attach submission counts to each sheet
@@ -1861,7 +2102,7 @@ def get_instructor_sheets(email: Optional[str] = None):
         return {"sheets": sheets}
 
 @app.get("/api/instructor/sheet/{code}/settings")
-def get_sheet_settings(code: str, email: Optional[str] = None):
+def get_sheet_settings(code: str, instructor: dict = Depends(get_current_instructor)):
     code = code.upper().strip()
     with get_db() as conn:
         cursor = conn.cursor()
@@ -1870,7 +2111,7 @@ def get_sheet_settings(code: str, email: Optional[str] = None):
         if not row:
             raise HTTPException(status_code=404, detail="Lab sheet not found")
         sheet_dict = dict(row)
-        if email and sheet_dict.get("instructor_email", "").lower() != email.lower().strip():
+        if sheet_dict.get("instructor_email", "").lower() != instructor["email"].lower():
             raise HTTPException(status_code=403, detail="Access denied: You do not own this lab sheet.")
         
         if "is_locked" not in sheet_dict or sheet_dict["is_locked"] is None:
@@ -1880,7 +2121,7 @@ def get_sheet_settings(code: str, email: Optional[str] = None):
         return {"sheet": sheet_dict}
 
 @app.post("/api/instructor/sheet/{code}/settings")
-def update_sheet_settings(code: str, req: ExamSettingsRequest):
+def update_sheet_settings(code: str, req: ExamSettingsRequest, instructor: dict = Depends(get_current_instructor)):
     code = code.upper().strip()
     with get_db() as conn:
         cursor = conn.cursor()
@@ -1889,7 +2130,7 @@ def update_sheet_settings(code: str, req: ExamSettingsRequest):
         if not row:
             raise HTTPException(status_code=404, detail="Lab sheet not found")
         sheet_dict = dict(row)
-        if req.instructor_email and sheet_dict.get("instructor_email", "").lower() != req.instructor_email.lower().strip():
+        if sheet_dict.get("instructor_email", "").lower() != instructor["email"].lower():
             raise HTTPException(status_code=403, detail="Access denied: You do not own this lab sheet.")
 
         updates = []
@@ -1912,6 +2153,9 @@ def update_sheet_settings(code: str, req: ExamSettingsRequest):
         if req.custom_questions is not None:
             updates.append("custom_questions = ?")
             params.append(json.dumps(req.custom_questions))
+        if req.allow_review is not None:
+            updates.append("allow_review = ?")
+            params.append(1 if req.allow_review else 0)
 
         if updates:
             params.append(code)
@@ -1932,9 +2176,18 @@ def update_sheet_settings(code: str, req: ExamSettingsRequest):
 # Anti-Cheat Student Exam Generator & Submissions
 # ---------------------------------------------------------
 @app.get("/api/exam/sheet/{code}")
-def get_exam_sheet_for_student(code: str, email: str):
+def get_exam_sheet_for_student(code: str, request: Request, email: Optional[str] = None):
     code = code.upper().strip()
-    student_email = email.lower().strip()
+    auth_header = request.headers.get("Authorization")
+    token = request.query_params.get("token") or (auth_header[7:].strip() if auth_header and auth_header.startswith("Bearer ") else None)
+    user_payload = verify_session_token(token) if token else None
+    student_email = (user_payload["email"] if user_payload else (email or "")).lower().strip()
+
+    if not student_email:
+        raise HTTPException(
+            status_code=401,
+            detail="Student authentication required. Please sign in before taking the practical exam. / تسجيل الدخول إلزامي لبدء الاختبار العملي."
+        )
 
     with get_db() as conn:
         cursor = conn.cursor()
@@ -1961,6 +2214,7 @@ def get_exam_sheet_for_student(code: str, email: str):
             return {
                 "sheet_code": code,
                 "already_submitted": True,
+                "allow_review": bool(sheet.get("allow_review", 0)),
                 "submission": dict(existing_sub)
             }
 
@@ -2108,10 +2362,10 @@ def get_exam_sheet_for_student(code: str, email: str):
         }
 
 @app.post("/api/exam/submit")
-def submit_exam_answers(req: SubmitExamRequest):
+def submit_exam_answers(req: SubmitExamRequest, user: dict = Depends(get_current_user)):
     code = req.sheet_code.upper().strip()
-    student_email = req.student_email.lower().strip()
-    student_name = req.student_name.strip()
+    student_email = user["email"].lower().strip()
+    student_name = user["full_name"].strip()
 
     with get_db() as conn:
         cursor = conn.cursor()
@@ -2192,8 +2446,11 @@ def submit_exam_answers(req: SubmitExamRequest):
                         "score": score_pct,
                         "earned_points": round(earned_points, 2),
                         "total_points": round(total_points, 2),
+                        "correct_answers": sum(1 for v in question_results.values() if v),
+                        "total_questions": len(question_results),
                         "passed": bool(passed),
                         "passing_score": sheet_dict["passing_score"],
+                        "allow_review": bool(sheet_dict.get("allow_review", 0)),
                         "message": f"Scored {score_pct}% ({round(earned_points, 1)} / {round(total_points, 1)} points)."
                     }
             except Exception as e:
@@ -2315,6 +2572,7 @@ def submit_exam_answers(req: SubmitExamRequest):
             "passing_score": sheet_dict["passing_score"],
             "correct_answers": correct_count,
             "total_questions": total_q,
+            "allow_review": bool(sheet_dict.get("allow_review", 0)),
             "topic_results": topic_results,
             "message": f"Successfully submitted. Final score: {score_pct}% ({'PASSED' if passed else 'NEEDS RETAKE'})."
         }
